@@ -1,0 +1,1516 @@
+#include"var_exp.h"
+
+static const t_exp_map g_jump_table[] = {
+    {"?", expand_exit_status}, // $?
+    {"$", expand_pid},         // $$     
+    {"((", expand_arith},      // $((
+    {"(", expand_subshell},    // $(
+    {"{", expand_braces},      // ${
+    {0,   NULL}                // Null terminator
+};
+
+static long long parse_arith_primary(const char **p, t_err_type *err);
+static long long parse_arith_unary(const char **p, t_err_type *err);
+static long long parse_arith_muldiv(const char **p, t_err_type* err);
+static long long parse_arith_addsub(const char **p, t_err_type* err);
+static long long parse_arith_exprsh(const char **p, t_err_type* err);
+static long long parse_arith_number(const char** p, t_err_type* err);
+
+static char* getenv_local(char** env, const char* var_name){
+
+    if (!env || !var_name || !*var_name)
+        return NULL;
+
+    char* result = NULL;
+    size_t key_len = strlen(var_name);
+
+    for (int i = 0; env[i]; i++) {
+        if (strncmp(env[i], var_name, key_len) == 0 && env[i][key_len] == '=') {
+            return (result = strdup(env[i] + key_len + 1));
+        }
+    }
+    return result;
+}
+static int getenv_local_idx(char** env, const char* var_name){
+
+    if (!env || !var_name || !*var_name)
+        return -1;
+
+    int result = -1;
+    size_t key_len = strlen(var_name);
+
+    for (int i = 0; env[i]; i++) {
+        if (strncmp(env[i], var_name, key_len) == 0 && env[i][key_len] == '=') {
+            return i;
+        }
+    }
+    return result;
+}
+
+static int realloc_argv(char*** argv, size_t* argv_cap){
+
+    size_t new_cap = *argv_cap * BUF_GROWTH_FACTOR;
+
+    char** new_argv = realloc(*argv, new_cap * sizeof(char*));
+    if(!new_argv)
+        return -1;
+
+    for(int i = *argv_cap; i < new_cap; i++)
+        new_argv[i] = NULL;
+
+    *argv = new_argv;
+    *argv_cap = new_cap;
+
+    return 0;
+}
+
+static int add_to_env(t_shell* shell, char* var, char* val){
+
+    if (!shell || !var || !val)
+        return -1; 
+
+    if(shell->env_count + 1 >= shell->env_cap){
+        if(realloc_argv(&shell->env, &shell->env_cap) == -1){
+            perror("realloc");
+            return -1;
+        }
+    }
+
+    size_t size_env_var = strlen(var) + strlen(val) + 1 + 1; ///< +1 '=' & +1 '\0'
+    char* env_var = (char*)malloc(sizeof(char) * size_env_var);
+    if(!env_var){
+        perror("41: fatal malloc env_var");
+        return -1;
+    }
+
+    snprintf(env_var, size_env_var, "%s=%s", var, val);
+    int idx = -1;
+    if( (idx = getenv_local_idx(shell->env, var)) == -1 ) {
+
+        if(shell->env_count - 1 >= shell->env_cap){
+            if(realloc_argv(&shell->env, &shell->env_cap) == -1){
+                perror("realloc");
+                exit(EXIT_FAILURE);
+            }
+        }
+        shell->env[shell->env_count++] = env_var;
+        shell->env[shell->env_count] = NULL;
+    } else{
+        free(shell->env[idx]);
+        shell->env[idx] = env_var;
+    }
+    return 0;
+}
+
+static int realloc_buf(char** buffer, size_t* cap){
+
+    size_t new_cap = *cap * BUF_GROWTH_FACTOR;
+    char* new_buf = realloc(*buffer, new_cap);
+    if(!new_buf){
+        perror("realloc buf");
+        return -1;
+    }
+
+    *cap = new_cap;
+    *buffer = new_buf;
+    return 0;
+}
+
+static void cleanup_argv(char** argv){
+
+    if(argv == NULL)
+        return;
+
+    int i = 0;
+    while(argv[i] != NULL){
+
+        free(argv[i]);
+        argv[i] = NULL;
+
+        i++;
+    }
+
+    free(argv);
+}
+
+static char* get_ifs(t_shell* shell){
+
+    char* ifs = getenv_local(shell->env, "IFS");
+    if( !ifs && (ifs = getenv("IFS")) == NULL ){
+        char ifs_loc[] = {' ', '\t', '\n', '\0'};
+        return strdup(ifs_loc);
+    }
+    return ifs;
+}
+
+static int is_ifs_whitespace(char c) {
+    return c == ' ' || c == '\t' || c == '\n';
+}
+
+static char** separate_ifs(t_shell *shell, const char *src) {
+
+    char *ifs = get_ifs(shell);
+
+    size_t cap = 8, argc = 0;
+    char **argv = calloc(cap, sizeof(char *));
+    if (!argv){
+        perror("calloc");
+        free(ifs);
+        return NULL;
+    }
+
+    if (ifs[0] == '\0') {
+        argv[0] = strdup(src);
+        argv[1] = NULL;
+        free(ifs);
+        return argv;
+    }
+
+    const char *p = src;
+
+    while (*p && strchr(ifs, *p) && is_ifs_whitespace(*p)){
+        p++;
+    }
+
+    while (*p) {
+
+        if (argc + 1 > cap) {
+            cap *= BUF_GROWTH_FACTOR;
+            char** new_argv  = realloc(argv, cap * sizeof(char *));
+            if(!new_argv){
+                perror("realloc");
+                cleanup_argv(argv);
+                return NULL;
+            }
+            argv = new_argv;
+        }
+
+        const char *start = p;
+
+        while (*p && !strchr(ifs, *p))
+            p++;
+
+        argv[argc++] = strndup(start, p - start);
+
+        if (!*p)
+            break;
+
+        if (!is_ifs_whitespace(*p)) {
+            p++;
+            if (*p == '\0' || strchr(ifs, *p))
+                argv[argc++] = strdup("");
+        } else {
+            while (*p && strchr(ifs, *p) && is_ifs_whitespace(*p))
+                p++;
+        }
+    }
+
+    argv[argc] = NULL;
+    free(ifs);
+    ifs = NULL;
+
+    return argv;
+}
+static char* strip_quotes(const char* src) {
+    if (!src) return NULL;
+
+    size_t len = strlen(src);
+    char* dst = malloc(len + 1);
+    if (!dst) return NULL;
+
+    size_t di = 0;
+    bool in_single = false;
+    bool in_double = false;
+
+    for (size_t si = 0; si < len; si++) {
+        if (src[si] == '\'' && !in_double) {
+            in_single = !in_single;
+            continue; 
+        } 
+        if (src[si] == '"' && !in_single) {
+            in_double = !in_double;
+            continue;
+        } 
+        if (src[si] == '\\' && !in_single) {
+            if (si + 1 < len) {
+                si++;
+            }
+        }
+
+        dst[di++] = src[si];
+    }
+
+    dst[di] = '\0';
+    return dst;
+}
+
+static char* make_string(t_token* tok){
+
+    if(!tok || tok->start == NULL || tok->type == -1 || tok->len == 0)
+        return strdup("");
+
+    char* string = strndup(tok->start, tok->len);
+    if(!string){
+        perror("strndup");
+        return NULL;
+    }
+
+    return string;
+}
+
+static t_exp_handler find_handler(const char* c) {
+    for (int i = 0; g_jump_table[i].trigger; i++) {
+        size_t tlen = strlen(g_jump_table[i].trigger);
+        if (strncmp(g_jump_table[i].trigger, c, tlen) == 0)
+            return g_jump_table[i].handler;
+    }
+    return expand_var;
+}
+
+char* expand_exit_status(t_shell* shell, const char* src, size_t* i){
+
+    (void)src;
+    (*i)++;
+
+    char status[32];
+    snprintf(status, sizeof(status), "%d", shell->last_exit_status);
+    char *res = strdup(status);
+    if(!res){
+        perror("strdup fail");
+        return NULL;
+    }
+
+    return res;
+}
+
+char* expand_pid(t_shell* shell, const char* src, size_t* i){
+
+    (void)src;
+    (*i)++;
+
+    char pid[32];
+    snprintf(pid, sizeof(pid), "%d", shell->pgid);
+    char *res = strdup(pid);
+    if(!res){
+        perror("strdup fail");
+        return NULL;
+    }
+
+    return res;
+}
+
+static void skip_spaces(const char **p) {
+    while (**p && (**p == ' ' || **p == '\t')) (*p)++;
+}
+
+static long long parse_arith_pow(const char **p, t_err_type *err) {
+
+    long long left = parse_arith_unary(p, err);
+    if (*err != err_none) return 0;
+
+    skip_spaces(p);
+
+    if ((*p)[0] == '*' && (*p)[1] == '*') {
+        (*p) += 2;
+
+        long long right = parse_arith_pow(p, err);
+        if (*err != err_none) return 0;
+
+        if (right < 0) {
+            return 0; 
+        }
+        
+        long long res = 1;
+        for (long long i = 0; i < right; i++) {
+            res *= left;
+        }
+        return res;
+    }
+
+    return left;
+}
+
+static long long parse_arith_primary(const char **p, t_err_type *err) {
+
+    skip_spaces(p);
+
+    if (**p == '(') {
+        (*p)++;
+        long long val = parse_arith_exprsh(p, err);
+        skip_spaces(p);
+        if (**p != ')') {
+            *err = err_syntax;
+            return 0;
+        }
+        (*p)++;
+        return val;
+    }
+
+    if (isdigit(**p)) {
+        return parse_arith_number(p, err);
+    }
+
+    *err = err_syntax;
+    return 0;
+}
+static long long parse_arith_unary(const char **p, t_err_type* err) {
+    skip_spaces(p);
+    if (**p == '+') {
+        (*p)++;
+        return parse_arith_unary(p, err);
+    }
+    if (**p == '-') {
+        (*p)++;
+        return -parse_arith_unary(p, err);
+    }
+    return parse_arith_primary(p, err);
+}
+static long long parse_arith_muldiv(const char **p, t_err_type* err) {
+
+    long long left = parse_arith_pow(p, err); 
+    if (*err != err_none) return 0;
+
+    skip_spaces(p);
+    while (**p == '*' || **p == '/' || **p == '%') {
+        char op = **p;
+        (*p)++;
+        
+        long long right = parse_arith_primary(p, err);
+        if (*err != err_none) return 0;
+
+        if (op == '*' && op + 1 != '*') {
+            left *= right;
+        } else {
+            if (right == 0) {
+                *err = err_div_zero;
+                return 0;
+            }
+            if (op == '/')
+                left /= right;
+            else
+                left %= right;
+        }
+        skip_spaces(p);
+    }
+    return left;
+}
+static long long parse_arith_addsub(const char **p, t_err_type* err) {
+
+    long long left = parse_arith_muldiv(p, err);
+    if (*err != err_none) return 0;
+
+    skip_spaces(p);
+    while (**p == '+' || **p == '-') {
+        char op = **p;
+        (*p)++;
+        long long right = parse_arith_muldiv(p, err);
+        
+        if (op == '+') 
+            left+=right;
+        else 
+            left-=right;
+        
+        skip_spaces(p);
+    }
+    return left;
+}
+static long long parse_arith_exprsh(const char **p, t_err_type* err) {
+
+    if (!p || !*p || !**p) return 0;
+
+    long long result = parse_arith_addsub(p, err);
+
+    skip_spaces(p);
+    if (**p != '\0' && **p != ')' && *err == err_none) {
+        *err = err_syntax; 
+    }
+
+    return result;
+}
+static long long parse_arith_number(const char** p, t_err_type* err) {
+    
+    char *endptr;
+    long long val = strtoll(*p, &endptr, 10);
+    
+    if (*p == endptr) {
+        *err = err_syntax;
+        return 0;
+    }
+    
+    *p = endptr;
+    return val;
+}
+
+static bool is_valid_var_char(char c, bool first_char) {
+    if (first_char) {
+        return isalpha(c) || c == '_';
+    } else {
+        return isalnum(c) || c == '_';
+    }
+}
+static bool is_valid_char(const char c){
+
+    switch(c){
+        case '+': return true;
+        case '-': return true;
+        case '/': return true;
+        case '%': return true;
+        case '*': return true;
+        case '(': return true;
+        case ')': return true;
+        case ' ': return true;
+        default: return isalnum(c);
+    }
+}
+
+static char* expand_vars_arith(t_shell* shell, char* src) {
+    
+    size_t i = 0;
+    char* new_buf = malloc(BUFFER_INITIAL_LEN);
+    if (!new_buf) {
+        perror("437: malloc fatal");
+        return NULL;
+    }
+
+    size_t new_buf_cap = BUFFER_INITIAL_LEN;
+    size_t new_buf_len = 0;
+    new_buf[0] = '\0';
+
+    while (src[i] != '\0') {
+
+        if (new_buf_len + 1 >= new_buf_cap) {
+            if(realloc_buf(&new_buf, &new_buf_cap) == -1){
+                perror("445: malloc fatal");
+                return NULL;
+            }
+        }
+
+        if (isalpha(src[i]) || src[i] == '_') {
+            char* expanded = expand_var(shell, src, &i);
+            
+            if (!expanded || expanded[0] == '\0') {
+                new_buf[new_buf_len++] = '0';
+            } else {
+                size_t len = strlen(expanded);
+                while (new_buf_len + len >= new_buf_cap){
+                    if(realloc_buf(&new_buf, &new_buf_cap) == -1){
+                        perror("460: malloc fatal");
+                        return NULL;
+                    }
+                }
+                
+                memcpy(new_buf + new_buf_len, expanded, len);
+                new_buf_len += len;
+            }
+            free(expanded);
+        } else {
+            new_buf[new_buf_len++] = src[i++];
+        }
+        new_buf[new_buf_len] = '\0';
+    }
+    return new_buf;
+}
+
+static char* extract_arith(const char* src, size_t* i, t_err_type* err){
+
+    size_t idx = *i;
+    idx++;
+    int depth = 1;
+    size_t len = 0;
+    
+    size_t f = idx;
+    size_t lastidx = -1;
+    while(src[f]){
+        if(src[f] == ')') lastidx = f;
+        f++;
+    }
+    size_t j = lastidx - 1;
+    while(j >= idx){
+        if(src[j] == ')') break;
+        j--;
+    }
+    char* srcpy = strdup(src);
+    srcpy[j + 1] = ')';
+    j+=2;
+    while(srcpy[j]) srcpy[j++] = '\0';
+
+    size_t max = strlen(srcpy);
+    if(max <= 5) {
+        free(srcpy);
+        return strdup("");
+    }
+
+    const char* start = &(srcpy[idx]);
+    while(depth > 0){
+        if(idx + 1 < max && srcpy[idx] == '(' && srcpy[idx + 1] == '('){ depth++; idx+=2; }
+        if(idx + 1 < max && srcpy[idx] == ')' && srcpy[idx + 1] == ')') { depth--; idx+=2; }
+        if(depth == 0) break;
+        idx++;
+        len++;
+    }
+
+    char* eqn_buf = strndup(start, len);
+    if(!eqn_buf)
+        return NULL;
+    free(srcpy);
+
+    int w = 0;
+    while(eqn_buf[w] != '\0'){
+        if(is_valid_char(eqn_buf[w]) == false){
+            free(eqn_buf);
+            *err = err_syntax;
+            return NULL;
+        }
+        w++;
+    }
+
+    *i = idx;
+    return eqn_buf;
+}
+
+char* expand_arith(t_shell* shell, const char* src, size_t* i) {
+
+    t_err_type err = err_none;
+    size_t maxhop = strlen(src);
+    char* raw_eqn_buf = extract_arith(src, i, &err);
+    if(err == err_syntax){
+        fprintf(stderr, "\nmsh: invalid arith syntax\n");
+        (*i)+=maxhop + 1;
+        return strdup("");
+    }
+    if(!raw_eqn_buf){
+        perror("298: malloc fail");
+        return NULL;
+    }
+    if(strcmp(raw_eqn_buf, "") == 0) {
+        *i+=maxhop;
+        return raw_eqn_buf;
+    }
+
+    char* expanded = expand_vars_arith(shell, raw_eqn_buf);
+
+    const char* p = expanded;
+    long long rs = parse_arith_exprsh(&p, &err);
+    if(err == err_syntax){
+        free(raw_eqn_buf);
+        free(expanded);
+        fprintf(stderr, "\nmsh: invalid arith syntax");
+        (*i)++;
+        return NULL;
+    } else if(err == err_div_zero){
+        free(raw_eqn_buf);
+        free(expanded);
+        fprintf(stderr, "\nmsh: div by zero");
+        (*i)++;
+        return NULL;
+    } else if(err == err_overflow){
+        free(raw_eqn_buf);
+        free(expanded);
+        fprintf(stderr, "\nmsh: longlong overflow");
+        (*i)++;
+        return strdup("0");
+    }
+
+    //handles 64-bit number exactly
+    char* result = malloc(32);
+    if (result) {
+        snprintf(result, 32, "%lld", rs);
+    }
+    (*i)++;
+
+    free(raw_eqn_buf);
+    free(expanded);
+    return result;
+}
+
+static size_t skip_alnum_us(const char** p){
+
+    size_t len = 0;
+    while((isalnum(**p) || **p == '_') && **p != '\0' ){ 
+        (*p)++; 
+        len++; 
+    }
+    return len;
+}
+
+static t_param_op get_param_op(t_shell* shell, const char* src){
+    
+    const char* op = src;
+    size_t comparator = skip_alnum_us(&op);
+    size_t len = strlen(src);
+    if(comparator == len){
+        return PARAM_OP_NONE;
+    } else{
+        if(*op == ':' && *(op + 1) == '-') return PARAM_OP_MINUS;
+        if(*op == ':' && *(op + 1) == '=') return PARAM_OP_EQUAL;
+        if(*op == ':' && *(op + 1) == '+') return PARAM_OP_PLUS;
+        if(*op == ':' && *(op + 1) == '?') return PARAM_OP_QUESTION;
+        if(*op == '#' && *(op + 1) == '#') return PARAM_OP_HASH_HASH;
+        if(*op == '%' && *(op + 1) == '%') return PARAM_OP_PERCENT_PERCENT;
+        if(*op == '#') return PARAM_OP_HASH;
+        if(*op == ':') return PARAM_OP_COLON;
+        if(*op == '%') return PARAM_OP_PERCENT;
+    }
+    return PARAM_OP_ERR;
+}
+
+static char* extract_var_and_alt(const char* src, char** alt_ptr, t_err_type* err) {
+
+    const size_t INITIAL_VAR_VAL_LEN = 128;
+    
+    char* var = malloc(INITIAL_VAR_VAL_LEN);
+    if (!var) {
+        perror("malloc fatal");
+        return NULL;
+    }
+    
+    char* alt = malloc(INITIAL_VAR_VAL_LEN);
+    if (!alt) {
+        free(var);
+        perror("malloc fatal");
+        return NULL;
+    }
+    
+    size_t var_cap = INITIAL_VAR_VAL_LEN, var_len = 0;
+    size_t alt_cap = INITIAL_VAR_VAL_LEN, alt_len = 0;
+    var[0] = '\0';
+    alt[0] = '\0';
+    
+    bool parsing_alt = false;
+    size_t idx = 0;
+    
+    while (src[idx] != '\0') {
+        if (src[idx] == ':' && (src[idx+1] == '+' || src[idx+1] == '-' || 
+                                src[idx+1] == '=' || src[idx+1] == '?')) {
+            parsing_alt = true;
+            idx += 2;
+            continue;
+        }
+        
+        if (!parsing_alt) {
+            if (!is_valid_var_char(src[idx], idx == 0)) {
+                free(var);
+                free(alt);
+                *err = err_bad_sub;
+                return NULL;
+            }
+            
+            if (var_len + 1 >= var_cap && realloc_buf(&var, &var_cap) == -1) {
+                free(var);
+                free(alt);
+                return NULL;
+            }
+            
+            var[var_len++] = src[idx];
+            var[var_len] = '\0';
+        } else {
+            if (alt_len + 1 >= alt_cap && realloc_buf(&alt, &alt_cap) == -1) {
+                free(var);
+                free(alt);
+                return NULL;
+            }
+            
+            alt[alt_len++] = src[idx];
+            alt[alt_len] = '\0';
+        }
+        idx++;
+    }
+    
+    if (var_len == 0) {
+        free(var);
+        free(alt);
+        *err = err_bad_sub;
+        return NULL;
+    }
+    
+    *alt_ptr = alt;
+    return var;
+}
+
+static char* expand_param_op(t_shell* shell, const char* src, t_param_op op, t_err_type* err) {
+
+    char* alt = NULL;
+    char* var = extract_var_and_alt(src, &alt, err);
+    
+    if (*err != err_none) {
+        return NULL;
+    }
+
+    char* var_val = getenv_local(shell->env, var);
+    if (!var_val) {
+        const char* sys_val = getenv(var);
+        if (sys_val) {
+            var_val = strdup(sys_val);
+        }
+    }
+    
+    char* result = NULL;
+    
+    switch (op) {
+        case PARAM_OP_MINUS:
+            if (!var_val || var_val[0] == '\0') {
+                result = strdup(alt);
+            } else {
+                result = strdup(var_val);
+            }
+            break;
+            
+        case PARAM_OP_EQUAL:
+            if (!var_val || var_val[0] == '\0') {
+                result = strdup(alt);
+                add_to_env(shell, var, alt);
+                setenv(var, alt, 1);
+            } else {
+                result = strdup(var_val);
+            }
+            break;
+            
+        case PARAM_OP_PLUS:
+            if (var_val && var_val[0] != '\0') {
+                result = strdup(alt);
+            } else {
+                result = strdup("");
+            }
+            break;
+            
+        case PARAM_OP_QUESTION:
+            if (!var_val || var_val[0] == '\0') {
+                if (alt && alt[0] != '\0') {
+                    fprintf(stderr, "msh: %s: %s\n",var, alt);
+                } else {
+                    fprintf(stderr, "msh: %s: parameter not set\n", var);
+                    *err = err_param_unset;
+                }
+                result = NULL;
+            } else {
+                result = strdup(var_val);
+            }
+            break;
+            
+        default:
+            result = NULL;
+            *err = err_bad_sub;
+            break;
+    }
+
+    if (var_val) free(var_val);
+    free(var);
+    free(alt);
+    
+    return result;
+}
+
+static char* expand_param(t_shell* shell, const char* src, t_err_type* err) {
+
+    t_param_op op = get_param_op(shell, src);
+    if (op == PARAM_OP_ERR){
+        *err = err_bad_sub;
+        return NULL;
+    }
+    
+    if (op == PARAM_OP_NONE) {
+        size_t i_ph = 0;
+        return expand_var(shell, src, &i_ph);
+    }
+    
+    char* result = expand_param_op(shell, src, op, err);
+    if (*err != err_none) {
+        if (result) 
+            free(result);
+        return NULL;
+    }
+    
+    return result;
+}
+
+char* expand_braces(t_shell* shell, const char* src, size_t* i){
+
+    int depth = 0;
+    size_t idx = *i;
+    char* buf = (char*)malloc(BUFFER_INITIAL_LEN);
+    if(!buf){
+        perror("fatal malloc");
+        return NULL;
+    }
+    buf[0] = '\0';
+    size_t w = 0;
+    while(src && src[idx]){
+
+        if(src[idx] == '{'){
+            depth++;
+            idx++;
+            continue;
+        }
+        if(src[idx] == '}'){
+            depth--;
+            idx++;
+            continue;
+        }
+        if(depth == 0) 
+            break;
+
+        buf[w++] = src[idx];
+        buf[w] = '\0';
+        idx++;
+    }
+    buf[w] = '\0';
+
+    t_err_type err = err_none;
+    char* expanded_param = expand_param(shell, buf, &err);
+    if(!expanded_param && err != err_none && err != err_param_unset) {
+        fprintf(stderr, "\nmsh: bad substituion ");
+        free(buf);
+        *i = idx;
+        return NULL;
+    }
+
+    free(buf);
+    *i = idx;
+    return expanded_param;
+}
+
+char* expand_subshell(t_shell* shell, const char* src, size_t* i){
+
+    size_t idx = *i;
+    char* cmd_line = (char*)malloc(BUFFER_INITIAL_LEN);
+    if(!cmd_line){
+        return NULL;
+    }
+    size_t l_cap = BUFFER_INITIAL_LEN;
+    cmd_line[0] = '\0';
+
+    int depth = 1;
+    idx++;
+    size_t w = 0;
+    while(depth > 0){
+        if(w + 1 >= l_cap){
+            if(realloc_buf(&cmd_line, &l_cap) == -1){
+                perror("realloc fatal");
+                free(cmd_line);
+                return NULL;
+            }
+        }
+
+        if (src[idx] == '(') depth++;
+        else if (src[idx] == ')') depth--;
+
+        if (depth == 0) break;
+
+        cmd_line[w++] = src[idx++];
+    }
+    cmd_line[w] = '\0';
+
+    int fds[2] = {-1, -1};
+    if(pipe(fds) == -1){
+        perror("pipe fatal");
+        free(cmd_line);
+        return NULL;
+    }
+    pid_t pid = fork();
+    if(pid < 0){
+        perror("fork");
+        free(cmd_line);
+        return NULL;
+    }
+
+    if(pid == 0){
+
+        t_token_stream ts;
+        init_token_stream(&ts);
+
+        setpgid(0, 0);
+
+        shell->job_control_flag = 0;
+
+        close(fds[0]);
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[1]);
+        parse_and_execute(cmd_line, shell, &ts);
+        
+        _exit(shell->last_exit_status);
+    } else{
+
+        setpgid(pid, pid);
+
+        close(fds[1]);
+        char c = '\0';
+        char* buf = (char*)malloc(BUFFER_INITIAL_LEN);
+        if(!buf){
+            perror("buf fatal");
+            free(cmd_line);
+        }
+        size_t buf_cap = BUFFER_INITIAL_LEN, buf_size = 0;
+        while(read(fds[0], &c, 1) > 0){
+
+            if(buf_size + 1 > buf_cap){
+                if(realloc_buf(&buf, &buf_cap) == -1){
+                    free(buf);
+                    free(cmd_line);
+                    kill(-pid, SIGKILL);
+                    while(waitpid(-pid, NULL, 0) > 0);
+                    return NULL;
+                }
+            }
+            
+            buf[buf_size++] = c;
+        }
+        buf[buf_size] = '\0';
+        close(fds[0]);
+
+        while(waitpid(-pid, NULL, 0) > 0);
+        free(cmd_line);
+
+        while (buf_size > 0 && buf[buf_size - 1] == '\n')
+            buf[--buf_size] = '\0';
+
+        *i = ++idx;
+        return buf;
+    }
+
+    return NULL;
+}
+
+char* expand_var(t_shell* shell, const char* src, size_t* i) {
+
+    size_t start = *i;
+    
+    while (src[*i] != '\0' && (isalnum(src[*i]) || src[*i] == '_')) {
+        (*i)++;
+    }
+    
+    size_t len = *i - start;
+    if (len == 0) 
+        return strdup("");
+
+    char* name = strndup(src + start, len);
+    if(!name){
+        perror("strdup fail");
+        return NULL;
+    }
+    char* value = getenv_local(shell->env, name);
+    free(name);
+
+    return value ? value : strdup("");
+}
+
+static int push_field(char*** fields, size_t* f_argc, size_t* f_cap, char** str) {
+
+    if (*f_argc + 1 >= *f_cap) {
+
+        size_t new_cap = *f_cap * BUF_GROWTH_FACTOR;
+        char** new_fields = realloc(*fields, new_cap * sizeof(char*));
+        if (!new_fields){
+            perror("realloc");
+            return -1;
+        }
+        for (size_t i = *f_cap; i < new_cap; i++) {
+            new_fields[i] = NULL;
+        }
+
+        *fields = new_fields;
+        *f_cap = new_cap;
+    }
+
+    (*fields)[(*f_argc)++] = *str;
+    (*fields)[*f_argc] = NULL;
+    *str = NULL;
+
+    return 0;
+}
+
+static char** expand_fields(t_shell* shell, char* src) {
+
+    size_t fields_cap = ARGV_INITIAL_LEN, fields_argc = 0;
+    char** fields = calloc(sizeof(char*), fields_cap);
+    if(!fields){
+        perror("fields malloc");
+        return NULL;
+    }
+
+    char* buffer = malloc(BUFFER_INITIAL_LEN);
+    if(!buffer){
+        perror("buf malloc");
+        cleanup_argv(fields);
+        return NULL;
+    }
+    buffer[0] = '\0';
+
+    size_t buffer_cap = BUFFER_INITIAL_LEN, buffer_size = 0, i = 0;
+    bool single_q = false, double_q = false;
+    while (src && src[i] != '\0') {
+
+        if (buffer_size + 2 > buffer_cap){
+            if(realloc_buf(&buffer, &buffer_cap) == -1){
+                perror("realloc buf");
+                free(buffer);
+                cleanup_argv(fields);
+                return NULL;
+            }
+        }
+
+        if (src[i] == '\'' && !double_q) {
+            single_q = !single_q;
+            buffer[buffer_size++] = src[i++];
+            buffer[buffer_size] = '\0';
+            continue;
+        }
+        if (!single_q && src[i] == '"') {
+            double_q = !double_q;
+            buffer[buffer_size++] = src[i++];
+            buffer[buffer_size] = '\0';
+            continue;
+        }
+        if (src[i] == '\\' && !single_q) {
+            buffer[buffer_size++] = src[i++];
+            if (src[i]) {
+                buffer[buffer_size++] = src[i++];
+            }
+            buffer[buffer_size] = '\0';
+            continue;
+        }
+
+        if (!single_q && src[i] == '$') {
+
+            char c[3];
+            if(src[i + 2] == '('){
+                c[0] = src[i + 1];
+                c[1] = src[i + 2];
+                c[2] = '\0';
+            } else{
+                c[0] = src[i + 1];
+                c[1] = '\0';
+                c[2] = '\0';
+            }
+            t_exp_handler handler = find_handler(c);
+            i++;
+            if(handler == expand_arith) i++;
+
+            char* val = handler(shell, src, &i);
+            if (!val){
+                free(buffer);
+                cleanup_argv(fields);
+                return NULL;
+            }
+
+            if (double_q) {
+
+                size_t val_len = strlen(val);
+                while (buffer_size + val_len + 1 > buffer_cap){
+                    if(realloc_buf(&buffer, &buffer_cap) == -1){
+                        perror("realloc buf");
+                        free(buffer);
+                        cleanup_argv(fields);
+                    }
+                }
+
+                memcpy(buffer + buffer_size, val, val_len);
+                buffer_size += val_len;
+                buffer[buffer_size] = '\0';
+                free(val);
+            } else {
+                
+                char** splits = separate_ifs(shell, val);
+                free(val);
+
+                if (splits && splits[0]) {
+
+                    size_t s0_len = strlen(splits[0]);
+                    while (buffer_size + s0_len + 1 > buffer_cap){
+                        if(realloc_buf(&buffer, &buffer_cap) == -1){
+                            perror("realloc buf s0");
+                            cleanup_argv(splits);
+                            cleanup_argv(fields);
+                            free(buffer);
+                            return NULL;
+                        }
+                    }
+
+                    memcpy(buffer + buffer_size, splits[0], s0_len);
+                    buffer_size += s0_len;
+                    buffer[buffer_size] = '\0';
+
+                    for (int j = 1; splits[j]; j++) {
+
+                        push_field(&fields, &fields_argc, &fields_cap, &buffer);
+
+                        buffer = strdup(splits[j]);
+                        if(!buffer){
+                            perror("391: realloc buf");
+                            cleanup_argv(fields);
+                            cleanup_argv(splits);
+                            return NULL;
+                        }
+
+                        buffer_cap = strlen(buffer) + 1;
+                        buffer_size = buffer_cap - 1;
+                    }
+                }
+                cleanup_argv(splits);
+            }
+        } else {
+            buffer[buffer_size++] = src[i++];
+        }
+        buffer[buffer_size] = '\0';
+    }
+    if (buffer_size > 0 || fields_argc == 0)
+        push_field(&fields, &fields_argc, &fields_cap, &buffer);
+    else    
+        free(buffer);
+
+    return fields;
+}
+
+static bool next_is_arith(t_token* curr_tok, const size_t idx, const size_t segment_len){
+
+    t_token* next = curr_tok + 1;
+    t_token* nextnext = next + 1;
+    if(idx + 1 < segment_len && next->type == TOKEN_OPEN_PAR 
+    && curr_tok->len == 1 && curr_tok->start 
+    && curr_tok->start[0] == '$'
+    && nextnext->type == TOKEN_OPEN_PAR)
+        return true;
+    else
+        return false;
+}
+
+static bool next_is_param(t_token* curr_tok, const size_t idx, const size_t segment_len){
+
+    t_token* next = curr_tok + 1;
+    if(idx + 1 < segment_len && next->type == TOKEN_OPEN_BRACE 
+    && curr_tok->len == 1 && curr_tok->start 
+    && curr_tok->start[0] == '$')
+        return true;
+    else
+        return false;
+}
+static bool next_is_subsh(t_token* curr_tok, const size_t idx, const size_t segment_len){
+
+    t_token* next = curr_tok + 1;
+    t_token* nextnext = next + 1;
+    if(idx + 1 < segment_len && next->type == TOKEN_OPEN_PAR 
+    && curr_tok->len == 1 && curr_tok->start 
+    && curr_tok->start[0] == '$'
+    && nextnext->type != TOKEN_OPEN_PAR)
+        return true;
+    else
+        return false;
+}
+
+static char* alloc_sbsh_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
+
+    t_token* curr_tok = *cr_tok;
+    size_t idx = *index;
+
+    int depth = 1;
+    char* subshell_buf = (char*)malloc(BUFFER_INITIAL_LEN);
+    if(!subshell_buf){
+        perror("malloc");
+        return NULL;
+    }
+    size_t sbsh_buf_cap = BUFFER_INITIAL_LEN;
+
+    memcpy(subshell_buf, "$(", 2);
+    size_t sbsh_buf_len = 2;
+    subshell_buf[sbsh_buf_len] = '\0';
+
+    curr_tok += 2;
+    idx += 2;
+
+    while(idx < segment_len && depth > 0){
+
+        if (curr_tok->type == TOKEN_OPEN_PAR)
+            depth++;
+        else if (curr_tok->type == TOKEN_CLOSE_PAR)
+            depth--;
+
+        if (depth == 0)
+            break;
+
+        while (sbsh_buf_len + curr_tok->len + 1 > sbsh_buf_cap) {
+            if (realloc_buf(&subshell_buf, &sbsh_buf_cap) == -1) {
+                perror("realloc buf fatal");
+                free(subshell_buf);
+                return NULL;
+            }
+        }
+
+        memcpy(subshell_buf + sbsh_buf_len, curr_tok->start, curr_tok->len);
+        sbsh_buf_len += curr_tok->len;
+        subshell_buf[sbsh_buf_len++] = ' ';
+
+        curr_tok++;
+        idx++;
+    }
+    if(sbsh_buf_len + 2 > sbsh_buf_cap){
+        if(realloc_buf(&subshell_buf, &sbsh_buf_cap) == -1){
+            free(subshell_buf);
+            return NULL;
+        }
+    }
+
+    subshell_buf[sbsh_buf_len++] = ')';
+    subshell_buf[sbsh_buf_len] = '\0';
+
+    curr_tok++; 
+    idx++;
+
+    *cr_tok = curr_tok; *index = idx;
+    return subshell_buf;
+}
+
+// static bool need_space_between(t_token *a, t_token *b){
+    
+//     if (!a || !b) return false;
+
+//     const char *end_a = a->start + a->len;
+//     const char *start_b = b->start;
+
+//     return start_b > end_a;
+// }
+
+static char* alloc_param_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
+
+    t_token* curr_tok = *cr_tok;
+    size_t idx = *index;
+
+    char* param_buf = (char*)malloc(sizeof(char) * BUFFER_INITIAL_LEN);
+    if(!param_buf){
+        return NULL;
+    }
+    size_t param_buf_cap = BUFFER_INITIAL_LEN;
+
+    memcpy(param_buf, "${", 2);
+    size_t param_buf_len = 2;
+    param_buf[param_buf_len] = '\0';
+
+    curr_tok += 2;
+    idx += 2;
+    int depth = 1;
+    while(idx < segment_len && curr_tok){
+
+        if (curr_tok->type == TOKEN_OPEN_BRACE)
+            depth++;
+        else if (curr_tok->type == TOKEN_CLOSE_BRACE)
+            depth--;
+
+        if (depth == 0)
+            break;
+
+        while (param_buf_len + curr_tok->len + 1 > param_buf_cap) {
+            if (realloc_buf(&param_buf, &param_buf_cap) == -1) {
+                perror("realloc buf fatal");
+                free(param_buf);
+                return NULL;
+            }
+        }
+
+        memcpy(param_buf + param_buf_len, curr_tok->start, curr_tok->len);
+        param_buf_len += curr_tok->len;
+        t_token* next = curr_tok + 1;
+        if(curr_tok->type != TOKEN_EQUAL && next->type != TOKEN_EQUAL)
+            param_buf[param_buf_len++] = ' ';
+
+        curr_tok++;
+        idx++;
+    }
+
+    if(param_buf_len + 2 > param_buf_cap){
+        if(realloc_buf(&param_buf, &param_buf_cap) == -1){
+            free(param_buf);
+            return NULL;
+        }
+    }
+
+    param_buf_len--;
+    param_buf[param_buf_len++] = '}';
+    param_buf[param_buf_len] = '\0';
+
+    curr_tok++; 
+    idx++;
+
+    *cr_tok = curr_tok; *index = idx;
+    return param_buf;
+}
+
+static char* alloc_arith_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
+    t_token* curr_tok = *cr_tok;
+    size_t idx = *index;
+
+    char* arith_buf = (char*)calloc(sizeof(char), BUFFER_INITIAL_LEN);
+    if(!arith_buf){
+        perror("malloc fatal");
+        return NULL;
+    }
+    size_t arith_buf_cap = BUFFER_INITIAL_LEN;
+    memcpy(arith_buf, "$((", 3);
+    size_t arith_buf_len = 3;
+
+    curr_tok+=3;
+    idx+=3;
+    int depth = 2;
+    while(idx < segment_len && depth > 0){
+
+        if (curr_tok->type == TOKEN_OPEN_PAR)
+            depth++;
+        else if (curr_tok->type == TOKEN_CLOSE_PAR)
+            depth--;
+
+        if (depth == 0)
+            break;
+
+        while (arith_buf_len + curr_tok->len + 1 > arith_buf_cap) {
+            if (realloc_buf(&arith_buf, &arith_buf_cap) == -1) {
+                perror("realloc buf fatal");
+                free(arith_buf);
+                return NULL;
+            }
+        }
+
+        memcpy(arith_buf + arith_buf_len, curr_tok->start, curr_tok->len);
+        arith_buf_len += curr_tok->len;
+        arith_buf[arith_buf_len++] = ' ';
+
+        curr_tok++;
+        idx++;
+    }
+    if(arith_buf_len + 2 > arith_buf_cap){
+        if(realloc_buf(&arith_buf, &arith_buf_cap) == -1){
+            free(arith_buf);
+            return NULL;
+        }
+    }
+
+    memcpy(arith_buf + arith_buf_len, ")", 1);
+    arith_buf_len++;
+    arith_buf[arith_buf_len] = '\0';
+
+    curr_tok++; 
+    idx++;
+
+    *cr_tok = curr_tok; *index = idx;
+    return arith_buf;
+}
+
+static int redir_tok_found(t_token* tok){
+
+    if(!tok || tok->type == -1)
+        return 0;
+
+    if(tok->type == TOKEN_APPEND) return 1;
+    if(tok->type == TOKEN_HEREDOC) return 1;
+    if(tok->type == TOKEN_TRUNC) return 1;
+    if(tok->type == TOKEN_INPUT) return 1;
+
+    return 0;
+}
+
+t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const size_t segment_len) {
+
+    size_t argv_cap = ARGV_INITIAL_LEN;
+    char** argv_local = calloc(argv_cap, sizeof(char*));
+    if(!argv_local){
+        perror("calloc");
+        return err_fatal;
+    }
+
+    size_t argc = 0;
+    bool subshell = false;
+    bool arith = false;
+    bool param = false;
+    char* subshell_buf = NULL;
+    char* arith_buf = NULL;
+    char* param_buf = NULL;
+    t_token* curr_tok = start;
+    size_t idx = 0;
+    while(idx < segment_len) {
+
+        if(redir_tok_found(curr_tok)) 
+            break;
+
+        /*Check for special expansion: subshell*/
+        if(next_is_subsh(curr_tok, idx, segment_len)){
+            subshell_buf = alloc_sbsh_buf(&curr_tok, &idx, segment_len);
+            if(!subshell_buf){
+                cleanup_argv(argv_local);
+                return err_fatal;
+            }
+            subshell = true;
+        } else if(next_is_arith(curr_tok, idx, segment_len)){
+            arith_buf = alloc_arith_buf(&curr_tok, &idx, segment_len);
+            if(!arith_buf){
+                cleanup_argv(argv_local);
+                return err_fatal;
+            }
+            arith = true;
+        } else if(next_is_param(curr_tok, idx, segment_len)){
+            param_buf = alloc_param_buf(&curr_tok, &idx, segment_len);
+            if(!param_buf){
+                cleanup_argv(argv_local);
+                return err_fatal;
+            }
+            param = true;
+        }
+        
+        char* str = NULL;
+        if(subshell){
+            str = subshell_buf;
+            subshell_buf = NULL;
+        } else if(arith){ 
+            str = arith_buf;
+            arith_buf = NULL;
+        } else if(param){
+            str = param_buf;
+            param_buf = NULL;
+        }else{
+            str = make_string(curr_tok);
+            if(!str){
+                perror("malloc strdup");
+                cleanup_argv(argv_local);
+                return err_fatal;
+            }
+        }
+
+        char** expanded_fields = expand_fields(shell, str);
+        if(!expanded_fields){
+            free(str);
+            str = NULL;
+            idx++;
+            continue;
+        }
+
+        free(str);
+        str = NULL;
+
+        if (!expanded_fields) 
+            continue;
+
+        for (int i = 0; expanded_fields[i]; i++) {
+
+            if (argc >= argv_cap - 1){
+                if(realloc_argv(&argv_local, &argv_cap) == -1){
+                    cleanup_argv(expanded_fields);
+                    cleanup_argv(argv_local);
+                    return err_fatal;
+                }
+            }
+            
+            argv_local[argc++] = strip_quotes(expanded_fields[i]);
+            argv_local[argc] = NULL;
+        }
+
+        cleanup_argv(expanded_fields);
+
+        if(!subshell && !arith && !param){
+            curr_tok++;
+            idx++;
+        }
+        subshell = false;
+        arith = false;
+        param = false;
+    }
+
+    *argv = argv_local;
+    argv_local = NULL;
+
+    return err_none;
+}
