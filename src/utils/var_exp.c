@@ -683,7 +683,7 @@ static char* extract_var_and_alt(const char* src, char** alt_ptr, t_err_type* er
     while (src[idx] != '\0') {
 
         if(src[idx] == ':' || src[idx] == '#' || src[idx] == '%'){
-            if(src[idx + 1] != '#' || src[idx + 1] != '%'){
+            if(src[idx] != ':' && (src[idx + 1] != '#' || src[idx + 1] != '%')){
                 idx++;
                 parsing_alt = true;
                 continue;
@@ -972,7 +972,7 @@ static char* expand_param(t_shell* shell, const char* src, t_err_type* err) {
     }
     
     if (op == PARAM_OP_NONE) {
-        
+
         size_t i_ph = 0;
         return expand_var(shell, src, &i_ph);
     } else if(op == PARAM_OP_LEN){
