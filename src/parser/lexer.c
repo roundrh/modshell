@@ -81,8 +81,49 @@ static void flush_word(t_token_stream* ts, char** tok_start, size_t* tok_len, bo
     *tokenized = false;
 }
 
+static bool should_alias(t_token_stream* ts, size_t i) {
+    if (i == 0) 
+        return true;
+    t_token_type prev = ts->tokens[i-1].type;
+    return (prev == TOKEN_PIPE || prev == TOKEN_SEQ || 
+            prev == TOKEN_AND  || prev == TOKEN_OR || prev == TOKEN_OPEN_PAR);
+}
+
+static int expand_alias_token(char** cmd_line_buf, t_alias_hashtable* aliases, t_token_stream* ts) {
+    if (!cmd_line_buf || !*cmd_line_buf || ts->tokens_arr_len == 0 || !aliases)
+        return 0;
+
+    for (size_t i = 0; i < ts->tokens_arr_len; i++) {
+        if (ts->tokens[i].type != TOKEN_SIMPLE || !should_alias(ts, i))
+            continue;
+
+        char *name = strndup(ts->tokens[i].start, ts->tokens[i].len);
+        if (name[0] == '\\') { free(name); continue; }
+
+        char *alias_val = find_alias_command(name, aliases);
+        free(name);
+
+        if (alias_val) {
+            size_t prefix_len = ts->tokens[i].start - *cmd_line_buf;
+            size_t alias_len  = strlen(alias_val);
+            size_t suffix_len = strlen(ts->tokens[i].start + ts->tokens[i].len);
+
+            char *new_buf = malloc(prefix_len + alias_len + suffix_len + 1);
+            if (!new_buf) return -1;
+
+            memcpy(new_buf, *cmd_line_buf, prefix_len);
+            memcpy(new_buf + prefix_len, alias_val, alias_len);
+            strcpy(new_buf + prefix_len + alias_len, ts->tokens[i].start + ts->tokens[i].len);
+
+            free(*cmd_line_buf);
+            *cmd_line_buf = new_buf;
+            return 1;
+        }
+    }
+    return 0;
+}
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop cond cmd_buf[i+1] can be '\0' but never UB*/
-int lex_command_line(char* cmd_buf, t_token_stream* token_stream){
+int lex_command_line(char** cmd_line_buf, t_token_stream* token_stream, t_alias_hashtable* aliases){
 
     bool in_single_quote = false;
     bool in_double_quote = false;
@@ -92,6 +133,7 @@ int lex_command_line(char* cmd_buf, t_token_stream* token_stream){
     size_t op_len = 0;
     int i = 0;
     size_t token_count = 0;
+    char* cmd_buf = *cmd_line_buf;
     while(cmd_buf[i] != '\0'){
 
         if(check_realloc_toks_arr(token_stream, token_count) == -1){
@@ -160,16 +202,30 @@ int lex_command_line(char* cmd_buf, t_token_stream* token_stream){
         fprintf(stderr, "\nmsh: syntax err unbalanced quotes");
         return -1;
     }
-
     token_stream->tokens_arr_len = token_count;
+
+    int expanded = expand_alias_token(cmd_line_buf, aliases, token_stream);
+    if (expanded < 0)
+        return -1;
+
+    if (expanded == 1) {
+        cleanup_token_stream(token_stream);
+        if (init_token_stream(token_stream) == -1)
+            return -1;
+
+        return lex_command_line(cmd_line_buf, token_stream, NULL);
+    }
+
     return 0;
 }
 
-int cleanup_token_stream(t_token_stream* token_stream){
+int cleanup_token_stream(t_token_stream* token_stream) {
 
-    if(token_stream->tokens)
+    if (!token_stream) 
+        return 0;
+
+    if (token_stream->tokens) 
         free(token_stream->tokens);
-
     token_stream->tokens = NULL;
     token_stream->tokens_arr_cap = -1;
     token_stream->tokens_arr_len = -1;

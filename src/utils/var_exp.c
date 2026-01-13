@@ -1104,7 +1104,7 @@ char* expand_subshell(t_shell* shell, const char* src, size_t* i){
         close(fds[0]);
         dup2(fds[1], STDOUT_FILENO);
         close(fds[1]);
-        parse_and_execute(cmd_line, shell, &ts);
+        parse_and_execute(&cmd_line, shell, &ts);
         
         _exit(shell->last_exit_status);
     } else{

@@ -43,7 +43,7 @@
 #define INITIAL_IFS_LEN 32
 
 /* Forward declaration of parse_and_execute top level function */
-int parse_and_execute(char* cmd_buf, t_shell* shell, t_token_stream* token_stream);
+int parse_and_execute(char** cmd_buf, t_shell* shell, t_token_stream* token_stream);
 
 /**
  * @typedef enum e_err_type

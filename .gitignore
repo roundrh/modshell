@@ -18,3 +18,4 @@ core.*
 *.gcov
 *.json
 .cache/
+*.txt

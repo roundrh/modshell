@@ -8,6 +8,7 @@
 #include<stdlib.h>
 #include<stdbool.h>
 #include<string.h>
+#include"alias_ht.h"
 
 typedef enum e_token_type{
 
@@ -33,7 +34,6 @@ typedef struct s_token{
     char* start;
     size_t len;
     t_token_type type;
-    bool expandable;
 } t_token;
 
 typedef struct s_token_stream{
@@ -44,7 +44,7 @@ typedef struct s_token_stream{
 } t_token_stream;
 
 int init_token_stream(t_token_stream* token_stream);
-int lex_command_line(char *cmd_buf, t_token_stream *tokens);
+int lex_command_line(char **cmd_buf, t_token_stream *tokens, t_alias_hashtable* aliases);
 int cleanup_token_stream(t_token_stream* token_stream);
 
 #endif // ! LEXER_H

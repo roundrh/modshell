@@ -65,7 +65,7 @@ unsigned int hash_alias(const char* key);
  * @param ht Pointer to the alias hashtable
  * @return 0 on successful swap, -1 if alias not found
  */
-int swap_alias_command(char** cmd, t_alias_hashtable* ht);
+char* find_alias_command(const char* str, t_alias_hashtable* ht);
 
 /**
  * @brief Inserts a new alias into the hashtable

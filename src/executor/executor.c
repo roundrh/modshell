@@ -680,9 +680,10 @@ static int exec_list(char* cmd_buf, t_ast_n* node, t_shell* shell, int subshell,
  * @return -1 on fail, 0 on success.
  *
  */
-int parse_and_execute(char* cmd_buf, t_shell* shell, t_token_stream* token_stream){
+int parse_and_execute(char** cmd_buf, t_shell* shell, t_token_stream* token_stream){
 
-    if(lex_command_line(cmd_buf, token_stream) == -1){
+    t_alias_hashtable* aliases = &(shell->aliases);
+    if(lex_command_line(cmd_buf, token_stream, aliases) == -1){
         perror("lex");
         return -1;
     }
@@ -710,7 +711,7 @@ int parse_and_execute(char* cmd_buf, t_shell* shell, t_token_stream* token_strea
     }
 
     if(exec_flag){
-        exec_list(cmd_buf, root, shell, 0, NULL);
+        exec_list(*cmd_buf, root, shell, 0, NULL);
     }
     
     if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){

@@ -109,7 +109,6 @@ void cleanup_global_shell_ptr(void){
         g_shell_ptr = NULL;
     }
 }
-
 void cleanup_global_cmd_buf_ptr(void){
     if(g_cmd_buf_ptr != NULL){
         free(g_cmd_buf_ptr);
@@ -199,7 +198,7 @@ int main(int argc, char** argv){
                 continue; 
             }
 
-            parse_and_execute(line, &shell_state, &shell_state.token_stream);
+            parse_and_execute(&line, &shell_state, &shell_state.token_stream);
 
             free(line);
             line = NULL;
@@ -271,10 +270,6 @@ int main(int argc, char** argv){
         cmd_line_buf[strcspn(cmd_line_buf, "\n")] = '\0';
         cmd_line_buf[strcspn(cmd_line_buf, "\r")] = '\0';
 
-        if(shell_state.aliases.alias_count > 0){
-            swap_alias_command(&cmd_line_buf, &shell_state.aliases);
-        }
-
         if(push_front_dll(cmd_line_buf, &(shell_state.history)) == NULL){
             perror("fatal fail pushfrontdll");
             return -1;
@@ -283,11 +278,11 @@ int main(int argc, char** argv){
         if (shell_state.is_interactive)
             HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
 
-        parse_and_execute(cmd_line_buf, &shell_state, &shell_state.token_stream);
-
+        parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream);
+        set_global_cmd_buf_ptr(cmd_line_buf);
+        
         free(cmd_line_buf);
         set_global_cmd_buf_ptr(NULL);
-
         for(int i = 0; i < shell_state.token_stream.tokens_arr_len; i++){
             shell_state.token_stream.tokens[i].start = NULL;
             shell_state.token_stream.tokens[i].len = 0;

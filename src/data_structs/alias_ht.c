@@ -83,12 +83,6 @@ unsigned int hash_alias(const char* key){
  */
 t_alias_ht_node* insert_alias(t_alias_hashtable* ht, const char* alias, const char* aliased_cmd){
 
-    if(ht->alias_count == DEFSIZE_H){
-        printf("\nMax alias count reached, cannot add more\n");
-        fflush(stdout);
-        return NULL;
-    }
-
     int idx = hash_alias(alias);
 	t_alias_ht_node* nn = NULL;
 
@@ -197,11 +191,10 @@ int flush_alias_ht(t_alias_hashtable* ht){
 void print_alias_ht(t_alias_hashtable* ht){
 
     int i = 0;
-    printf("\nAlias | Command\n");
     while(i < DEFSIZE_H){
         t_alias_ht_node* ptr = ht->buckets[i];
         while(ptr != NULL){
-            printf("%s | %s\n", ptr->alias, ptr->aliased_cmd);
+            printf("%s=%s\n", ptr->alias, ptr->aliased_cmd);
             ptr = ptr->next;
         }
 
@@ -209,41 +202,17 @@ void print_alias_ht(t_alias_hashtable* ht){
     }
 }
 
-static int realloc_cmd(char** cmd, size_t size){
-    
-    if(!cmd || size <= 0) 
-        return -1;
-
-    char* new_cmd = realloc(*cmd, size);
-    if(!new_cmd){
-        perror("fatal realloc");
-        return -1;
-    }
-
-    *cmd = new_cmd;
-    return 0;
-}   
-
 /**
  * @brief Swaps a command with its alias if found
  * @param cmd The command buffer to check and potentially swap
  * @param ht Pointer to the alias hashtable
  * @return 0 on successful swap, -1 if alias not found
  */
-int swap_alias_command(char** cmd, t_alias_hashtable* ht){
+char* find_alias_command(const char* str, t_alias_hashtable* ht){
 
-    t_alias_ht_node* node = hash_find_alias(*cmd, ht);
+    t_alias_ht_node* node = hash_find_alias(str, ht);
     if(!node)
-        return -1;
-
-    int alias_len = strlen(node->aliased_cmd);
+        return NULL;
     
-    if(realloc_cmd(cmd, alias_len + 1) == -1){
-        perror("fatal");
-        return -1;
-    }
-
-    strcpy(*cmd, node->aliased_cmd);
-
-    return 0;
+    return node->aliased_cmd;
 }

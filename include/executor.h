@@ -42,6 +42,6 @@ typedef enum e_wait_status {
 }t_wait_status;
 
 
-int parse_and_execute(char* cmd_buf, t_shell* shell, t_token_stream* token_stream);
+int parse_and_execute(char** cmd_buf, t_shell* shell, t_token_stream* token_stream);
 
 #endif // ! EXECUTOR_H
