@@ -683,8 +683,7 @@ static int exec_list(char* cmd_buf, t_ast_n* node, t_shell* shell, int subshell,
 int parse_and_execute(char** cmd_buf, t_shell* shell, t_token_stream* token_stream){
 
     t_alias_hashtable* aliases = &(shell->aliases);
-    if(lex_command_line(cmd_buf, token_stream, aliases) == -1){
-        perror("lex");
+    if(lex_command_line(cmd_buf, token_stream, aliases, 0) == -1){
         return -1;
     }
 

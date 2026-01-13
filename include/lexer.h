@@ -44,7 +44,7 @@ typedef struct s_token_stream{
 } t_token_stream;
 
 int init_token_stream(t_token_stream* token_stream);
-int lex_command_line(char **cmd_buf, t_token_stream *tokens, t_alias_hashtable* aliases);
+int lex_command_line(char **cmd_buf, t_token_stream *tokens, t_alias_hashtable* aliases, int depth);
 int cleanup_token_stream(t_token_stream* token_stream);
 
 #endif // ! LEXER_H

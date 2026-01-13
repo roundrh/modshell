@@ -94,36 +94,64 @@ static int expand_alias_token(char** cmd_line_buf, t_alias_hashtable* aliases, t
         return 0;
 
     for (size_t i = 0; i < ts->tokens_arr_len; i++) {
+
         if (ts->tokens[i].type != TOKEN_SIMPLE || !should_alias(ts, i))
             continue;
 
         char *name = strndup(ts->tokens[i].start, ts->tokens[i].len);
-        if (name[0] == '\\') { free(name); continue; }
+        if (name[0] == '\\') { 
+            free(name);
+            name = NULL;
+            continue; 
+        }
 
         char *alias_val = find_alias_command(name, aliases);
-        free(name);
+
+        if (alias_val && strcmp(name, alias_val) == 0) {
+            free(name);
+            name = NULL;
+            continue;
+        }
 
         if (alias_val) {
+
+            bool circular = (strncmp(name, alias_val, strlen(name)) == 0);
+
             size_t prefix_len = ts->tokens[i].start - *cmd_line_buf;
             size_t alias_len  = strlen(alias_val);
             size_t suffix_len = strlen(ts->tokens[i].start + ts->tokens[i].len);
 
-            char *new_buf = malloc(prefix_len + alias_len + suffix_len + 1);
+            char *new_buf = malloc(prefix_len + alias_len + (size_t)circular + suffix_len + 1);
             if (!new_buf) return -1;
 
             memcpy(new_buf, *cmd_line_buf, prefix_len);
-            memcpy(new_buf + prefix_len, alias_val, alias_len);
-            strcpy(new_buf + prefix_len + alias_len, ts->tokens[i].start + ts->tokens[i].len);
+            if (circular) {
+                new_buf[prefix_len] = '\\';
+                memcpy(new_buf + prefix_len + 1, alias_val, alias_len);
+            } else {
+                memcpy(new_buf + prefix_len, alias_val, alias_len);
+            }
+            strcpy(new_buf + prefix_len + (size_t)circular + alias_len, ts->tokens[i].start + ts->tokens[i].len);
 
             free(*cmd_line_buf);
             *cmd_line_buf = new_buf;
+            
+            free(name);
             return 1;
         }
+        free(name);
     }
     return 0;
 }
+
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop cond cmd_buf[i+1] can be '\0' but never UB*/
-int lex_command_line(char** cmd_line_buf, t_token_stream* token_stream, t_alias_hashtable* aliases){
+int lex_command_line(char** cmd_line_buf, t_token_stream* token_stream, t_alias_hashtable* aliases, int depth){
+
+    /* alias depth */
+    if(depth > 10){
+        fprintf(stderr, "\nmsh: alias depth limit reached.");
+        return -1;
+    }
 
     bool in_single_quote = false;
     bool in_double_quote = false;
@@ -213,7 +241,7 @@ int lex_command_line(char** cmd_line_buf, t_token_stream* token_stream, t_alias_
         if (init_token_stream(token_stream) == -1)
             return -1;
 
-        return lex_command_line(cmd_line_buf, token_stream, NULL);
+        return lex_command_line(cmd_line_buf, token_stream, aliases, depth + 1);
     }
 
     return 0;

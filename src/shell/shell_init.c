@@ -162,6 +162,15 @@ static int copy_environ_to_env(t_shell* shell){
     return 0;
 }
 
+static int push_def_aliases(t_alias_hashtable* ht){
+    insert_alias(ht, "ls", "ls \"--color=tty\"");
+    insert_alias(ht, "fetch", "neofetch");
+    insert_alias(ht, "grep", "grep \"--color=auto\"");
+    insert_alias(ht, "ll", "ls -alh");
+    insert_alias(ht, "vim", "nvim");
+    return 0;
+}
+
 /**
  * @brief initialize shell state to null or calloc values
  * @param shell pointer to shell struct
@@ -242,6 +251,7 @@ int init_shell_state(t_shell* shell){
 
     init_builtin_hashtable(&(shell->builtins));
     init_alias_hashtable(&(shell->aliases));
+    push_def_aliases(&(shell->aliases));
 
     init_dll(&(shell->history));
 
