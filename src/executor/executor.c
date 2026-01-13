@@ -440,6 +440,7 @@ static pid_t exec_pipe(t_ast_n* node, t_shell* shell, t_job* job, int subshell){
             cleanup_flattened_ast(pipeline);
             pipeline = NULL;
             perror("pipe fail");
+            free(pipes);
             return -1;
         }
     }
