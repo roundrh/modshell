@@ -378,7 +378,7 @@ static long long parse_arith_muldiv(const char **p, t_err_type* err) {
         long long right = parse_arith_primary(p, err);
         if (*err != err_none) return 0;
 
-        if (op == '*' && op + 1 != '*') {
+        if (op == '*') {
             left *= right;
         } else {
             if (right == 0) {
@@ -636,6 +636,7 @@ static size_t skip_alnum_us(const char** p){
 static t_param_op get_param_op(t_shell* shell, const char* src){
     
     const char* op = src;
+    if(*op == '#') return PARAM_OP_LEN;
     size_t comparator = skip_alnum_us(&op);
     size_t len = strlen(src);
     if(comparator == len){
@@ -680,11 +681,17 @@ static char* extract_var_and_alt(const char* src, char** alt_ptr, t_err_type* er
     size_t idx = 0;
     
     while (src[idx] != '\0') {
-        if (src[idx] == ':' && (src[idx+1] == '+' || src[idx+1] == '-' || 
-                                src[idx+1] == '=' || src[idx+1] == '?')) {
-            parsing_alt = true;
-            idx += 2;
-            continue;
+
+        if(src[idx] == ':' || src[idx] == '#' || src[idx] == '%'){
+            if(src[idx + 1] != '#' || src[idx + 1] != '%'){
+                idx++;
+                parsing_alt = true;
+                continue;
+            } else{
+                idx+=2;
+                parsing_alt = true;
+                continue;
+            }
         }
         
         if (!parsing_alt) {
@@ -727,6 +734,126 @@ static char* extract_var_and_alt(const char* src, char** alt_ptr, t_err_type* er
     return var;
 }
 
+char* remove_leading_pattern(const char* src, const char* pattern, bool longest) {
+
+    char* rs = NULL;
+    if (!pattern || pattern[0] == '\0'){
+        rs = strdup(src);
+        if(!rs){
+            perror("736: strdup fatal");
+            return NULL;
+        }
+        return rs;
+    }
+
+    const char* rem = NULL;
+    size_t src_len = strlen(src);
+
+    for (size_t si = 0; si <= src_len; si++) {
+        size_t pi = 0;
+        size_t sj = si;
+
+        while (pattern[pi]) {
+            if (pattern[pi] == '*') {
+                while (pattern[pi] == '*') pi++;
+
+                if (!pattern[pi]) {
+                    sj = src_len;
+                    break;
+                }
+
+                while (src[sj] != '\0' && src[sj] != pattern[pi]) sj++;
+            } else {
+                if (src[sj] != pattern[pi]) 
+                    break;
+                sj++;
+                pi++;
+            }
+        }
+
+        if (!pattern[pi]) {
+            if (!longest) {
+                rs = strdup(src + sj);
+                if(!rs){
+                    perror("770: strdup fatal");
+                    return NULL;
+                }
+                return rs;
+            }
+            rem = src + sj;
+        }
+    }
+
+    if(!rem) rs = strdup("");
+    else rs = strdup(rem);
+    if(!rs){
+        perror("785: fatal strdup");
+        return NULL;
+    }
+
+    return rs;
+}
+
+static char* remove_trailing_pattern(const char* src, const char* pattern, bool longest) {
+
+    char* rs = NULL;
+    if (!pattern || pattern[0] == '\0'){
+        rs = strdup(src);
+        if(!rs){
+            perror("796: strdup fatal");
+            return NULL;
+        }
+        return rs;
+    }
+
+    const char* rem = NULL;
+    size_t src_len = strlen(src);
+
+    for (ssize_t si = src_len; si >= 0; si--) {
+
+        ssize_t pi = strlen(pattern) - 1;
+        ssize_t sj = si - 1;
+        while (pi >= 0) {
+
+            if (pattern[pi] == '*') {
+
+                while (pi >= 0 && pattern[pi] == '*') pi--;
+
+                if (pi < 0) {
+                    sj = -1;
+                    break;
+                }
+                while (sj >= 0 && src[sj] != pattern[pi]) sj--;
+            } else {
+                if (sj < 0 || src[sj] != pattern[pi]) break;
+                sj--;
+                pi--;
+            }
+        }
+
+        if (pi < 0) {
+            if (!longest) {
+                rs = strndup(src, sj + 1 + 1); 
+                if(!rs){
+                    perror("831: strndup fatal");
+                    return NULL;
+                }
+                return rs;
+            }
+            rem = src + sj + 1 + 1;
+        }
+    }
+
+    if (!rem) rs = strdup(src);
+    else rs = strndup(src, rem - src);
+    if(!rs){
+        perror("843: strndup fatal");
+        return NULL;
+    }
+
+    return rs;
+}
+
 static char* expand_param_op(t_shell* shell, const char* src, t_param_op op, t_err_type* err) {
 
     char* alt = NULL;
@@ -736,11 +863,11 @@ static char* expand_param_op(t_shell* shell, const char* src, t_param_op op, t_e
         return NULL;
     }
 
-    char* var_val = getenv_local(shell->env, var);
-    if (!var_val) {
+    char* val = getenv_local(shell->env, var);
+    if (!val) {
         const char* sys_val = getenv(var);
         if (sys_val) {
-            var_val = strdup(sys_val);
+            val = strdup(sys_val);
         }
     }
     
@@ -748,25 +875,25 @@ static char* expand_param_op(t_shell* shell, const char* src, t_param_op op, t_e
     
     switch (op) {
         case PARAM_OP_MINUS:
-            if (!var_val || var_val[0] == '\0') {
+            if (!val || val[0] == '\0') {
                 result = strdup(alt);
             } else {
-                result = strdup(var_val);
+                result = strdup(val);
             }
             break;
             
         case PARAM_OP_EQUAL:
-            if (!var_val || var_val[0] == '\0') {
+            if (!val || val[0] == '\0') {
                 result = strdup(alt);
                 add_to_env(shell, var, alt);
                 setenv(var, alt, 1);
             } else {
-                result = strdup(var_val);
+                result = strdup(val);
             }
             break;
             
         case PARAM_OP_PLUS:
-            if (var_val && var_val[0] != '\0') {
+            if (val && val[0] != '\0') {
                 result = strdup(alt);
             } else {
                 result = strdup("");
@@ -774,7 +901,7 @@ static char* expand_param_op(t_shell* shell, const char* src, t_param_op op, t_e
             break;
             
         case PARAM_OP_QUESTION:
-            if (!var_val || var_val[0] == '\0') {
+            if (!val || val[0] == '\0') {
                 if (alt && alt[0] != '\0') {
                     fprintf(stderr, "msh: %s: %s\n",var, alt);
                 } else {
@@ -783,23 +910,59 @@ static char* expand_param_op(t_shell* shell, const char* src, t_param_op op, t_e
                 }
                 result = NULL;
             } else {
-                result = strdup(var_val);
+                result = strdup(val);
+            }
+            break;
+        case PARAM_OP_HASH:
+            if (val) {
+                result = remove_leading_pattern(val, alt, false);
+            } else {
+                result = strdup("");
             }
             break;
             
+        case PARAM_OP_HASH_HASH:
+            if (val) {
+                result = remove_leading_pattern(val, alt, true);
+            } else {
+                result = strdup("");
+            }
+            break;
+        case PARAM_OP_PERCENT:
+            if (val) {
+                result = remove_trailing_pattern(val, alt, false);
+            } else {
+                result = strdup("");
+            }
+            break;
+        case PARAM_OP_PERCENT_PERCENT:
+            if (val) {
+                result = remove_trailing_pattern(val, alt, true);
+            } else {
+                result = strdup("");
+            }
+            break;
         default:
             result = NULL;
             *err = err_bad_sub;
             break;
     }
 
-    if (var_val) free(var_val);
-    free(var);
-    free(alt);
+    if (val) free(val);
+    if(var) free(var);
+    if(alt) free(alt);
     
     return result;
 }
 
+/**
+ * @brief Expands param of type brace
+ * 
+ * @param shell shell struct
+ * @param src src string 
+ * @param err err type
+ * @return char* expanded param to expand_fields
+ */
 static char* expand_param(t_shell* shell, const char* src, t_err_type* err) {
 
     t_param_op op = get_param_op(shell, src);
@@ -809,8 +972,24 @@ static char* expand_param(t_shell* shell, const char* src, t_err_type* err) {
     }
     
     if (op == PARAM_OP_NONE) {
+        
         size_t i_ph = 0;
         return expand_var(shell, src, &i_ph);
+    } else if(op == PARAM_OP_LEN){
+
+        char buf[32];
+
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)strlen(src));
+        char* rs = strdup(buf);
+        if(!rs){
+            perror("982: strdup fatal");
+            if(getpid() == shell->pgid) {
+                exit(1);
+            } else{
+                _exit(1);
+            }
+        }
+        return rs;
     }
     
     char* result = expand_param_op(shell, src, op, err);

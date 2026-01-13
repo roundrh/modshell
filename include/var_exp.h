@@ -78,6 +78,7 @@ typedef enum e_param_op {
     PARAM_OP_PERCENT,     // ${VAR%pattern}
     PARAM_OP_PERCENT_PERCENT, // ${VAR%%pattern}
     PARAM_OP_COLON,       // ${VAR:offset} or ${VAR:offset:length}
+    PARAM_OP_LEN
 } t_param_op;
 
 /* typedef function pointer for expansion handlers - used by dispatcher */

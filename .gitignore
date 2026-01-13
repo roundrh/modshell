@@ -16,3 +16,4 @@ core.*
 *.gcda
 *.gcno
 *.gcov
+*.json
