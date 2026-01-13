@@ -17,3 +17,4 @@ core.*
 *.gcno
 *.gcov
 *.json
+.cache/
