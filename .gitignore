@@ -19,3 +19,4 @@ core.*
 *.json
 .cache/
 *.txt
+vgcore.*
