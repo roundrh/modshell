@@ -77,9 +77,10 @@ static int update_no_noti_jobs(t_shell* shell){
         perror("sigproc");
     }
     
-    /* enforcer */
     if(is_job_table_empty(shell)){
-        reset_job_table_cap(shell);
+        if(reset_job_table_cap(shell) == -1){
+            exit(EXIT_FAILURE);
+        }
         shell->job_count = 0;
     }
     return 0;

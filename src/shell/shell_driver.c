@@ -60,14 +60,12 @@ static int reap_sigchld_jobs(t_shell* shell) {
             job->state = S_RUNNING;
         }
         if (is_job_stopped(job)) {
-            fprintf(stdout, "\n");
             print_job_info(job);
             job->state = S_STOPPED;
             job->position = P_BACKGROUND;
         } else if (is_job_completed(job)) {
             job->state = S_COMPLETED;
             if (job->position == P_BACKGROUND) {
-                fprintf(stdout, "\n");
                 print_job_info(job);
             }
             del_job(shell, job->job_id);
