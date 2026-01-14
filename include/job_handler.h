@@ -9,11 +9,14 @@
 
 #define MAX_JOBS 8192
 #define BUF_GROWTH_FACTOR 2
+#define INITIAL_JOB_TABLE_LENGTH 32
 
 int add_job(t_shell* shell, t_job* job);
 int del_job(t_shell* shell, int job_id);
 
 int add_process_to_job(t_job *job, t_process* process);
+
+int reset_job_table_cap(t_shell* shell);
 
 int mark_job_state(t_shell* shell, int job_id, t_state state);
 

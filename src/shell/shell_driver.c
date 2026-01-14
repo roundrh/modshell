@@ -52,15 +52,18 @@ static int reap_sigchld_jobs(t_shell* shell) {
             process->running = 0;
             process->completed = 0;
             job->state = S_STOPPED;
+            job->position = P_BACKGROUND;
         } else if (WIFCONTINUED(status)) {
             process->stopped = 0;
             process->running = 1;
             process->completed = 0;
             job->state = S_RUNNING;
         }
-        if (WIFSTOPPED(status)) {
+        if (is_job_stopped(job)) {
             fprintf(stdout, "\n");
             print_job_info(job);
+            job->state = S_STOPPED;
+            job->position = P_BACKGROUND;
         } else if (is_job_completed(job)) {
             job->state = S_COMPLETED;
             if (job->position == P_BACKGROUND) {
@@ -76,6 +79,9 @@ static int reap_sigchld_jobs(t_shell* shell) {
     }
     
     if(is_job_table_empty(shell)){
+        if(reset_job_table_cap(shell) == -1){
+            exit(EXIT_FAILURE);
+        }
         shell->job_count = 0;
     }
 

@@ -82,6 +82,31 @@ int del_job(t_shell* shell, int job_id){
     return 0;
 }
 
+int reset_job_table_cap(t_shell* shell){
+
+    if(!is_job_table_empty(shell)){
+        return -1;
+    }
+
+    size_t ogl_cap = INITIAL_JOB_TABLE_LENGTH;
+    if(shell->job_table_cap <= ogl_cap){
+        return 0;
+    }
+
+    free(shell->job_table);
+    shell->job_table = (t_job**)malloc(sizeof(t_job*) * INITIAL_JOB_TABLE_LENGTH);
+    if(shell->job_table == NULL){
+        perror("fatal job table alloc err");
+        return -1;
+    }
+    for(size_t i = 0; i < INITIAL_JOB_TABLE_LENGTH; i++)
+        shell->job_table[i] = NULL;
+
+    shell->job_table_cap = INITIAL_JOB_TABLE_LENGTH;
+
+    return 0;
+}
+
 int is_job_completed(t_job *job) {
 
     if (!job) 
