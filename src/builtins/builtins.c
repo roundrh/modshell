@@ -176,37 +176,6 @@ static int wait_for_foreground_job(t_job* job, t_shell* shell) {
 }
 
 /**
- * @brief Helper function to create an aliased command string
- * @param node AST node containing command arguments
- * @param shell Shell context
- * @return Newly allocated string containing the aliased command
- */
-static char* make_aliased_command(t_ast_n* node, t_shell* shell, int eq_idx, char** argv){
-
-    char* aliased_cmd = NULL;
-
-    size_t full_len = 0;
-    int idx = eq_idx + 1;
-    while(argv[idx] != NULL){
-
-        full_len+=strlen(argv[idx]);
-        idx++;
-    }
-    aliased_cmd = (char*)malloc(sizeof(char) * full_len + 1);
-    aliased_cmd[0] = '\0';
-
-    idx = eq_idx + 1;
-    while(argv[idx] != NULL){
-
-        strcat(aliased_cmd, argv[idx]);
-        idx++;
-    }
-    aliased_cmd[full_len] = '\0';
-
-    return aliased_cmd;
-}
-
-/**
  * @brief Builtin help command - displays available commands
  * @param node AST node containing command arguments
  * @param shell Shell context
@@ -491,35 +460,58 @@ int kill_builtin(t_ast_n* node, t_shell* shell, char** argv){
  * @param shell Shell context
  * @return 0 on success, 1 on failure
  */
-int export_builtin(t_ast_n* node, t_shell* shell, char** argv){
+int export_builtin(t_ast_n* node, t_shell* shell, char** argv) {
 
-    int eq_idx = 0;
-    while(argv[eq_idx] != NULL){
-        if(strcmp(argv[eq_idx], "=") == 0){
+    if (argv[1] == NULL) {
+        return 0;
+    }
+
+    char* str = argv[1];
+    int eq_idx = -1;
+    for (int i = 0; str[i]; i++) {
+        if (str[i] == '=') {
+            eq_idx = i;
             break;
         }
-        eq_idx++;
     }
 
-    char* val_to_add = argv[eq_idx + 1];
+    char *var_name = NULL;
+    char *var_val = NULL;
 
-    if(argv[1] == NULL || val_to_add == NULL){
-        printf("\nmsh: usage: export var=<VAL>");
-        return 0;
-    } else{
-        if(setenv(argv[1], val_to_add, 1) == -1){
-            perror("setenv in export fail.");
-            return 1;
+    if (eq_idx == -1) {
+        var_name = strdup(str);
+        int local_idx = getenv_local(shell->env, var_name);
+        
+        if (local_idx >= 0) {
+            char* entry = shell->env[local_idx];
+            char* equals_ptr = strchr(entry, '=');
+            var_val = strdup(equals_ptr + 1);
+        } else {
+            var_val = strdup("");
         }
-        if(add_to_env(shell, argv[1], val_to_add) == -1){
-            perror("addtoenv fail");
-            return -1;
-        }
+    } else {
+        var_name = strndup(str, eq_idx);
+        var_val = strdup(str + eq_idx + 1);
     }
 
+    if (!var_name || !var_val) {
+        perror("msh: malloc");
+        free(var_name); free(var_val);
+        return -1;
+    }
+
+    if (setenv(var_name, var_val, 1) == -1) {
+        perror("msh: setenv");
+    }
+
+    if (add_to_env(shell, var_name, var_val) == -1) {
+        fprintf(stderr, "msh: add_to_env failed\n");
+    }
+
+    free(var_name);
+    free(var_val);
     return 0;
 }
-
 /**
  * @brief Builtin unset command - remove environment variable
  * @param node AST node containing command arguments
@@ -544,37 +536,48 @@ int unset_builtin(t_ast_n* node, t_shell* shell, char** argv){
     return 0;
 }
 
-int set_builtin(t_ast_n* node, t_shell* shell, char** argv){
+int set_builtin(t_ast_n* node, t_shell* shell, char** argv) {
 
-    char* var_name = argv[1];
-    if(!var_name){
-        fprintf(stderr, "\nmsh: usage: set <VAR_NAME>=<VAR_VAL>");
+    if (argv[1] == NULL) {
+        fprintf(stderr, "msh: usage: set <VAR>=<VAL>\n");
         return -1;
     }
-    int count = 3;
-    int total_size = 0;
-    while(argv[count] != NULL){
-        total_size+=strlen(argv[count]);
-        count++;
-    }
-    char* new_var = (char*)malloc(sizeof(char) * (total_size + 1));
-    if(!new_var){
-        perror("fatal malloc");
-        exit_builtin(node, shell, NULL);
-    }
-    new_var[0] = '\0';
-    int idx = 3;
-    while(argv[idx] != NULL){
-        strcat(new_var, argv[idx]);
-        idx++;
+
+    char* str = argv[1];
+    int eq_idx = -1;
+    for (int i = 0; str[i]; i++) {
+        if (str[i] == '=') {
+            eq_idx = i;
+            break;
+        }
     }
 
-    if(add_to_env(shell, var_name, new_var) == -1){
-        perror("fatal addtoenv");
-        exit_builtin(node, shell, argv);
+    if (eq_idx == -1) {
+        fprintf(stderr, "msh: set: %s: invalid assignment\n", str);
+        return -1;
     }
-    free(new_var);
-    new_var = NULL;
+
+    char* var_name = strndup(str, eq_idx);
+    char* var_val = strdup(str + eq_idx + 1);
+
+    if (!var_name || !var_val) {
+        perror("msh: malloc");
+        if(var_name)
+            free(var_name);
+        if(var_val)
+            free(var_val);
+        return -1;
+    }
+
+    if (add_to_env(shell, var_name, var_val) == -1) {
+        fprintf(stderr, "msh: failed to set variable %s\n", var_name);
+        free(var_name);
+        free(var_val);
+        return -1;
+    }
+
+    free(var_name);
+    free(var_val);
 
     return 0;
 }
@@ -600,34 +603,33 @@ int clear_builtin(t_ast_n* node, t_shell* shell, char** argv){
  */
 int alias_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
-    int eq_idx = 0;
-    bool found = false;
-    while(argv[eq_idx] != NULL){
-        if(strcmp(argv[eq_idx], "=") == 0){
-            found = true;
-            break;
-        }
-        eq_idx++;
-    }
-
     if(argv[1] == NULL){
         print_alias_ht(&(shell->aliases));
         return 0;
-    } else if(found == false) {
-        fprintf(stderr, "\nmsh: usage: alias=<COMMAND>");
+    } else if(argv[2] != NULL){
+        fprintf(stderr, "\nmsh: bad assignment");
+    }
+
+    int eq_idx = -1;
+    char* str = argv[1];
+    for(int i = 0; str[i]; i++){
+        if(str[i] == '=') {
+            eq_idx = i;
+            break;
+        }
+    }
+    if(eq_idx == -1) 
         return -1;
-    } else {
-        char* aliased_cmd = make_aliased_command(node, shell, eq_idx, argv);
-        if(aliased_cmd == NULL){
-            perror("fatal error aliased_cmd == null");
-            return -1;
-        }
-        if(insert_alias(&shell->aliases, argv[1], aliased_cmd) == NULL){
-            perror("err inserting alias");
-            return -1;
-        }
-        
-        free(aliased_cmd);
+
+    char* alias = strndup(argv[1], eq_idx);
+    size_t alias_len = strlen(argv[1]) - eq_idx - 1;
+    char* aliased_cmd = strndup(argv[1] + eq_idx + 1, alias_len);
+    t_alias_ht_node* n = insert_alias(&(shell->aliases), alias, aliased_cmd);
+    free(aliased_cmd);
+    free(alias);
+    if(!n){
+        perror("insert alias");
+        return -1;
     }
 
     return 0;

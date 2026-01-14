@@ -194,7 +194,7 @@ void print_alias_ht(t_alias_hashtable* ht){
     while(i < DEFSIZE_H){
         t_alias_ht_node* ptr = ht->buckets[i];
         while(ptr != NULL){
-            printf("%s=%s\n", ptr->alias, ptr->aliased_cmd);
+            printf("%s='%s'\n", ptr->alias, ptr->aliased_cmd);
             ptr = ptr->next;
         }
 

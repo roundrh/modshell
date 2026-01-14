@@ -28,7 +28,6 @@ t_token_type get_token_type(const char *c, size_t *len){
     if (c[0] == '>' && c[1] == '>') { *len = 2; return TOKEN_APPEND; }
     if (c[0] == '<' && c[1] == '<') { *len = 2; return TOKEN_HEREDOC; }
 
-    if (c[0] == '=') { *len = 1; return TOKEN_EQUAL; }
     if (c[0] == '|') { *len = 1; return TOKEN_PIPE; }
     if (c[0] == '&') { *len = 1; return TOKEN_BG; }
     if (c[0] == '>') { *len = 1; return TOKEN_TRUNC; }

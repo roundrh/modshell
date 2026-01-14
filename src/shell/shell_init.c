@@ -163,9 +163,9 @@ static int copy_environ_to_env(t_shell* shell){
 }
 
 static int push_def_aliases(t_alias_hashtable* ht){
-    insert_alias(ht, "ls", "ls \"--color=tty\"");
+    insert_alias(ht, "ls", "ls --color=tty");
     insert_alias(ht, "fetch", "neofetch");
-    insert_alias(ht, "grep", "grep \"--color=auto\"");
+    insert_alias(ht, "grep", "grep --color=auto");
     insert_alias(ht, "ll", "ls -alh");
     insert_alias(ht, "vim", "nvim");
     insert_alias(ht, "ff", "fastfetch");
