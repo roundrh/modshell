@@ -64,6 +64,7 @@ static int update_no_noti_jobs(t_shell* shell){
 
         if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
             job->state = S_COMPLETED;
+            del_job(shell, job->job_id);
         } else if (job && is_job_stopped(job)) {
             job->state = S_STOPPED;
             job->position = P_BACKGROUND;
@@ -479,66 +480,79 @@ int bg_builtin(t_ast_n* node, t_shell* shell, char** argv){
     return 0;
 }
 
-int kill_builtin(t_ast_n* node, t_shell* shell, char** argv){
+static void print_signals_list(void) {
+    printf(" 1. SIGHUP       2. SIGINT       3. SIGQUIT      4. SIGILL\n");
+    printf(" 5. SIGTRAP      6. SIGABRT      7. SIGBUS       8. SIGFPE\n");
+    printf(" 9. SIGKILL     10. SIGUSR1     11. SIGSEGV     12. SIGUSR2\n");
+    printf("13. SIGPIPE     14. SIGALRM     15. SIGTERM     17. SIGCHLD\n");
+    printf("18. SIGCONT     19. SIGSTOP     20. SIGTSTP     21. SIGTTIN\n");
+    printf("22. SIGTTOU\n");
+}
+
+int kill_builtin(t_ast_n* node, t_shell* shell, char** argv) {
+
+    if (argv[1] == NULL) {
+        fprintf(stderr, "msh: kill: not enough arguments\n");
+        return -1;
+    }
+    
+    if (strcmp(argv[1], "-l") == 0) {
+        print_signals_list();
+        return 0;
+    }
+
+    if (argv[2] == NULL || argv[3] != NULL) {
+        fprintf(stderr, "msh: kill: incorrect syntax\n");
+        return -1;
+    }
 
     update_no_noti_jobs(shell);
 
-    int i = 0;
-    while(argv[i] != NULL) i++;
-    int argc = i;
+    char* sig_str = (argv[1][0] == '-') ? argv[1] + 1 : argv[1];
+    char* sytx_check = sig_str;
+    while (*sytx_check) { 
+        if (!isdigit((unsigned char)*sytx_check)) {
+            fprintf(stderr, "msh: kill: invalid signal: %s\n", sig_str);
+            return -1;
+        }
+        sytx_check++;
+    }
+    int signum = atoi(sig_str);
 
-    if(argc < 3){
-        fprintf(stderr, "\nkill: kill <FLAG> %%<JOB_ID>");
+    t_job* job = NULL;
+    if (argv[2][0] == '%') {
+        job = find_job(shell, atoi(argv[2] + 1));
+    } else {
+        job = find_job_by_pid(shell, (pid_t)atoi(argv[2]));
+    }
+
+    if (!job) {
+        fprintf(stderr, "msh: kill: %s: no such job or pgid\n", argv[2]);
         return -1;
     }
 
-    char* id_str = argv[2];
-
-    if (id_str[0] == '%') {
-        id_str++;
-    }
-
-    int job_id = atoi(id_str);
-    if (job_id <= 0) {
-        fprintf(stderr, "\nmsh: invalid job id.");
+    if (kill(-job->pgid, signum) < 0) {
+        perror("msh: kill");
         return -1;
     }
 
-    t_job* job = find_job(shell, job_id);
-    if(!job){ 
-        fprintf(stderr, "\nmsh: job %d not found", job_id);
-        return -1;
-    }
-
-    if(strcmp(argv[1], "-STOP") == 0){
+    if (signum == SIGKILL || signum == SIGTERM || signum == SIGHUP || signum == SIGINT) {
+        printf("msh: [%d] Killed - %d\n", job->job_id, job->pgid);
+        job = NULL;
+    } 
+    else if (signum == SIGSTOP || signum == SIGTSTP || signum == SIGTTIN || signum == SIGTTOU) {
         job->state = S_STOPPED;
-        printf("msh: stopped %d", job->job_id);
-        if(kill(-job->pgid, SIGSTOP) < 0){
-            perror("kill");
-            return -1;
-        }
-    } else if(strcmp(argv[1], "-CONT") == 0){
+        printf("msh: [%d] Stopped - %d\n", job->job_id, job->pgid);
+    } 
+    else if (signum == SIGCONT) {
         job->state = S_RUNNING;
-        printf("\nmsh: resuming %d in background", job->job_id);
-        if(kill(-job->pgid, SIGCONT) < 0){
-            perror("kill");
-            return -1;
-        }
-    } else if(strcmp(argv[1], "-TERM") == 0){
-        job->state = S_COMPLETED;
-        printf("msh: term %d.", job->job_id);
-        if(kill(-job->pgid, SIGKILL) < 0){
-            perror("kill");
-            return -1;
-        }
-
-        del_job(shell, job->job_id);
-
-    } else{
-        fprintf(stderr, "\nUnknown flag, use -STOP, -CONT, -TERM");
-        return -1;
+        printf("msh: [%d] Resumed - %d\n", job->job_id, job->pgid);
+    } 
+    else {
+        printf("msh: [%d] Signaled (%d) - %d\n", job->job_id, signum, job->pgid);
     }
 
+    update_no_noti_jobs(shell);
     return 0;
 }
 

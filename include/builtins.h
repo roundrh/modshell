@@ -10,6 +10,7 @@
 #include<unistd.h>
 #include<stdlib.h>
 #include<stdbool.h>
+#include<ctype.h>
 #include<errno.h>
 #include<string.h>
 #include<sys/utsname.h>
