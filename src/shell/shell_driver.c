@@ -9,7 +9,7 @@
 static t_shell* g_shell_ptr = NULL;
 static char* g_cmd_buf_ptr = NULL;
 
-static int reap_sigchld_jobs(t_shell* shell){
+static int reap_sigchld_jobs(t_shell* shell) {
 
     sigset_t block_mask, old_mask;
     int reap_flag = 1;
@@ -27,67 +27,57 @@ static int reap_sigchld_jobs(t_shell* shell){
         reap_flag = 0;
     }
 
-    size_t i = 0;
-    t_job* job = NULL;
-
-    if(!reap_flag){
+    if(reap_flag == 0){
+        perror("reap flag");
         return -1;
     }
 
-    while (i < shell->job_table_cap) {
-        job = shell->job_table[i];
-        if (!job) {
-            i++;
-            continue;
-        }
+    int status;
+    pid_t pid;
 
-        int status;
-        pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
 
-        while ((pid = waitpid(-job->pgid, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+        t_job* job = find_job_by_pid(shell, pid); 
+        if (!job) continue;
 
-            t_process* process = find_process_in_job(job, pid);
-            if (!process) 
-                break;
+        t_process* process = find_process_in_job(job, pid);
+        if (!process) continue;
 
-            if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                process->completed = 1;
-                process->stopped = 0;
-                process->running = 0;
-            } else if (WIFSTOPPED(status)) {
-                process->stopped = 1;
-                process->completed = 0;
-                process->running = 0;
-            } else if (WIFCONTINUED(status)) {
-                process->running = 1;
-                process->stopped = 0;
-                process->completed = 0;
-            }
-        }
-
-        if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
-            job->state = S_COMPLETED;
-            print_job_info(job);
-            del_job(shell, job->job_id);
-        } else if (job && is_job_stopped(job)) {
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            process->completed = 1;
+            process->running = 0;
+            process->stopped = 0;
+        } else if (WIFSTOPPED(status)) {
+            process->stopped = 1;
+            process->running = 0;
+            process->completed = 0;
             job->state = S_STOPPED;
-            job->position = P_BACKGROUND;
-            print_job_info(job);
-        } else if(job && job->position == P_BACKGROUND){
+        } else if (WIFCONTINUED(status)) {
+            process->stopped = 0;
+            process->running = 1;
+            process->completed = 0;
             job->state = S_RUNNING;
         }
-
-        i++;
+        if (WIFSTOPPED(status)) {
+            fprintf(stdout, "\n");
+            print_job_info(job);
+        } else if (is_job_completed(job)) {
+            if (job->position == P_BACKGROUND) {
+                fprintf(stdout, "\n");
+                print_job_info(job);
+            }
+            del_job(shell, job->job_id);
+        }
     }
 
     if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){
         perror("sigproc");
     }
     
-    /* Enforcer */
     if(is_job_table_empty(shell)){
         shell->job_count = 0;
     }
+
     return 0;
 }
 

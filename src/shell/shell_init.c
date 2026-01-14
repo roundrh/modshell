@@ -18,10 +18,13 @@
  */
 static int push_built_ins(t_shell* shell){
 
-    /*=====================================================================*/
-    /*===================unforkable builtins (pipeable id)=================*/
-    /*=====================================================================*/
     if (insert_builtin(&(shell->builtins), "exit", exit_builtin, 0) == NULL) {
+        perror("FATAL: Failed to insert 'exit' builtin");
+        flush_builtin_ht(&(shell->builtins));
+        return -1;
+    }
+
+    if (insert_builtin(&(shell->builtins), "stty", stty_builtin, 0) == NULL) {
         perror("FATAL: Failed to insert 'exit' builtin");
         flush_builtin_ht(&(shell->builtins));
         return -1;
@@ -86,10 +89,6 @@ static int push_built_ins(t_shell* shell){
         flush_builtin_ht(&(shell->builtins));
         return -1;
     }
-
-    /*=====================================================================*/
-    /*===================forkable builtins (pipeable id)===================*/
-    /*=====================================================================*/
 
     if (insert_builtin(&(shell->builtins), "env", env_builtin, 1) == NULL) {
         perror("FATAL: Failed to insert 'env' builtin");

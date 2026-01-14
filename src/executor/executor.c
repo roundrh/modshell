@@ -220,11 +220,43 @@ static pid_t exec_extern_cmd(t_shell* shell, t_ast_n* node, t_job* job, int is_p
         if(add_process_to_job(job, process) == -1){
             perror("fail to add process to job");
             return -1;
-        }   
+        }
     }
 
     return pid;
 }
+
+static pid_t exec_bg_builtin(t_ast_n* node, t_shell* shell, t_job* job, t_ast_n* pipeline, t_ht_node* builtin_ptr, char** argv){
+
+    if(!argv){
+        perror("argv prop err");
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if(pid == -1){
+        perror("fork fail exec_extern");
+        return -1;
+    }  //fork error.
+
+    
+    if(pid == 0){
+
+        init_ch_sigtable(&(shell->shell_sigtable));
+        set_global_shell_ptr_chld(shell);
+
+        int exit_status = builtin_ptr->builtin_ptr(node, shell, argv);
+        cleanup_argv(argv);
+        _exit(exit_status);
+    } else{
+        int status;
+        waitpid(pid, &status, 0);
+        shell->last_exit_status = status;
+    }
+
+    return pid;
+}
+
 /**
  * @brief executes simple command in node
  * @param node pointer to ast node
@@ -253,9 +285,16 @@ static pid_t exec_simple_command(t_ast_n* node, t_shell* shell, t_job* job, int 
         return ret_pid;
     }
 
-    job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
-    cleanup_argv(argv);
-    shell->last_exit_status = job->last_exit_status;
+    if(job->position == P_FOREGROUND){
+        job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
+        cleanup_argv(argv);
+        shell->last_exit_status = job->last_exit_status;
+        return 0;
+    } else{
+        exec_bg_builtin(node, shell, job, pipeline, builtin_imp, argv);
+        cleanup_argv(argv);
+        return 0;
+    }
 
     /* pid 0 on built in execution -- denotes no fork -- shell last exit status set */
     return 0;
@@ -602,7 +641,7 @@ static int exec_job(char* cmd_buf, t_ast_n* node, t_shell* shell, int subshell, 
         return -1;
     }
 
-    exec_command(node, shell, job, 0, subshell, NULL);
+    pid_t is_builtin = exec_command(node, shell, job, 0, subshell, NULL);
 
     if(shell->job_control_flag && job->position == P_FOREGROUND){
 
@@ -618,8 +657,13 @@ static int exec_job(char* cmd_buf, t_ast_n* node, t_shell* shell, int subshell, 
             exit_builtin(node, shell, NULL);
         }
 
-        if(job_status == WAIT_FINISHED)
+        if(job_status == WAIT_FINISHED){
             del_job(shell, job->job_id);
+            if(is_builtin == 0){
+                if(shell->job_count > 0)
+                shell->job_count--;
+            }
+        }
 
         else if(job_status == WAIT_STOPPED){
             print_job_info(job);
@@ -629,13 +673,9 @@ static int exec_job(char* cmd_buf, t_ast_n* node, t_shell* shell, int subshell, 
             return -1;
         }
 
-    } else if(shell->job_control_flag) {
+    } else if(shell->job_control_flag && job->pgid != -1) {
         if(!subshell)
             print_job_info(job);
-
-        /* lazy but works until i fix the slight timing issue for quick commands like ls & or pwd &*/
-        usleep(10000);
-
         shell->last_exit_status = 0;
     } else if(!shell->job_control_flag && job->position == P_FOREGROUND){
         int status = 0;

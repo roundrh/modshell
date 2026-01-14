@@ -43,6 +43,7 @@ int unalias_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int exit_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int env_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int history_builtin(t_ast_n* node, t_shell* shell, char** argv);
+int stty_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int kill_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int set_builtin(t_ast_n* node, t_shell* shell, char** argv);
 

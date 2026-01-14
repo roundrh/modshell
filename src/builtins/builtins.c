@@ -6,7 +6,7 @@
 #include"builtins.h"
 //#include"sigtable_init.h"
 
-static int update_no_noti_jobs(t_shell* shell){
+static int update_no_noti_jobs(t_shell* shell) {
 
     sigset_t block_mask, old_mask;
     int reap_flag = 1;
@@ -24,65 +24,52 @@ static int update_no_noti_jobs(t_shell* shell){
         reap_flag = 0;
     }
 
-    size_t i = 0;
-    t_job* job = NULL;
-
-    if(!reap_flag){
+    if(reap_flag == 0){
+        perror("reap flag");
         return -1;
     }
 
-    while (i < shell->job_table_cap) {
-        job = shell->job_table[i];
-        if (!job) {
-            i++;
-            continue;
-        }
+    int status;
+    pid_t pid;
 
-        int status;
-        pid_t pid;
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
 
-        while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
+        t_job* job = find_job_by_pid(shell, pid); 
+        if (!job) continue;
 
-            t_process* process = find_process_in_job(job, pid);
-            if (!process) 
-                break;
+        t_process* process = find_process_in_job(job, pid);
+        if (!process) continue;
 
-            if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                process->completed = 1;
-                process->stopped = 0;
-                process->running = 0;
-            } else if (WIFSTOPPED(status)) {
-                process->stopped = 1;
-                process->completed = 0;
-                process->running = 0;
-            } else if (WIFCONTINUED(status)) {
-                process->running = 1;
-                process->stopped = 0;
-                process->completed = 0;
-            }
-        }
-
-        if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
-            job->state = S_COMPLETED;
-            del_job(shell, job->job_id);
-        } else if (job && is_job_stopped(job)) {
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            process->completed = 1;
+            process->running = 0;
+            process->stopped = 0;
+        } else if (WIFSTOPPED(status)) {
+            process->stopped = 1;
+            process->running = 0;
+            process->completed = 0;
             job->state = S_STOPPED;
-            job->position = P_BACKGROUND;
-        } else if(job && job->position == P_BACKGROUND){
+        } else if (WIFCONTINUED(status)) {
+            process->stopped = 0;
+            process->running = 1;
+            process->completed = 0;
             job->state = S_RUNNING;
         }
-
-        i++;
+        if (WIFSTOPPED(status)) {
+            continue;
+        } else if (is_job_completed(job)) {
+            del_job(shell, job->job_id);
+        }
     }
 
     if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){
         perror("sigproc");
     }
     
-    /* enforcer */
     if(is_job_table_empty(shell)){
         shell->job_count = 0;
     }
+
     return 0;
 }
 
@@ -330,6 +317,11 @@ int cd_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
 int jobs_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
+    if(shell->job_control_flag == -1){
+        fprintf(stderr, "\nmsh: job control disabled");
+        return -1;
+    }
+
     update_no_noti_jobs(shell);
 
     for(size_t i = 0; i < shell->job_table_cap; i++){
@@ -348,6 +340,11 @@ int jobs_builtin(t_ast_n* node, t_shell* shell, char** argv){
 }
 
 int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
+
+    if(shell->job_control_flag == -1){
+        fprintf(stderr, "\nmsh: job control disabled");
+        return -1;
+    }
 
     update_no_noti_jobs(shell);
 
@@ -405,6 +402,9 @@ int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
     if(kill(-job->pgid, SIGCONT) < 0){
         perror("failed to restart stopped job");
+        if (tcsetpgrp(shell->tty_fd, shell->pgid) == -1) {
+            perror("fg: terminal reclaim failed");
+        }
         return -1;
     }
     
@@ -418,6 +418,11 @@ int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
 }
 
 int bg_builtin(t_ast_n* node, t_shell* shell, char** argv){
+
+    if(shell->job_control_flag == -1){
+        fprintf(stderr, "\nmsh: job control disabled");
+        return -1;
+    }
 
     update_no_noti_jobs(shell);
 
@@ -480,6 +485,54 @@ int bg_builtin(t_ast_n* node, t_shell* shell, char** argv){
     return 0;
 }
 
+int stty_builtin(t_ast_n* node, t_shell* shell, char** argv){
+    
+    (void)node;
+
+    if (!isatty(shell->tty_fd)) {
+        fprintf(stderr, "stty: not a tty\n");
+        return -1;
+    }
+
+    struct termios t;
+    if (tcgetattr(shell->tty_fd, &t) == -1) {
+        perror("stty");
+        return -1;
+    }
+
+    if (argv[1] == NULL) {
+        if (t.c_lflag & TOSTOP)
+            printf("tostop\n");
+        else
+            printf("-tostop\n");
+
+        return 0;
+    }
+
+    for (int i = 1; argv[i]; i++) {
+
+        if (strcmp(argv[i], "tostop") == 0) {
+            t.c_lflag |= TOSTOP;
+        }
+        else if (strcmp(argv[i], "-tostop") == 0) {
+            t.c_lflag &= ~TOSTOP;
+        }
+        else {
+            fprintf(stderr, "stty: unkown option: %s\n", argv[i]);
+            return -1;
+        }
+    }
+
+    shell->term_ctrl.ogl_term_settings = t;
+
+    if (tcsetattr(shell->tty_fd, TCSANOW, &shell->term_ctrl.ogl_term_settings) == -1) {
+        perror("stty");
+        return -1;
+    }
+
+    return 0;
+}
+
 static void print_signals_list(void) {
     printf(" 1. SIGHUP       2. SIGINT       3. SIGQUIT      4. SIGILL\n");
     printf(" 5. SIGTRAP      6. SIGABRT      7. SIGBUS       8. SIGFPE\n");
@@ -488,7 +541,6 @@ static void print_signals_list(void) {
     printf("18. SIGCONT     19. SIGSTOP     20. SIGTSTP     21. SIGTTIN\n");
     printf("22. SIGTTOU\n");
 }
-
 int kill_builtin(t_ast_n* node, t_shell* shell, char** argv) {
 
     if (argv[1] == NULL) {
@@ -520,36 +572,44 @@ int kill_builtin(t_ast_n* node, t_shell* shell, char** argv) {
     int signum = atoi(sig_str);
 
     t_job* job = NULL;
+    pid_t target = -1;
+    int job_id = 0;
     if (argv[2][0] == '%') {
         job = find_job(shell, atoi(argv[2] + 1));
-    } else {
-        job = find_job_by_pid(shell, (pid_t)atoi(argv[2]));
+        if (!job) {
+            fprintf(stderr, "msh: kill: %s: no such job or pgid\n", argv[2]);
+            return -1;
+        }
+        target = job->pgid;
+        job_id = job->job_id;
+    } else{
+        target = (pid_t)atoi(argv[2]);
+        job = find_job_by_pid(shell, target);
+        if(job) job_id = job->job_id;
+        else job_id = 0;
     }
 
-    if (!job) {
-        fprintf(stderr, "msh: kill: %s: no such job or pgid\n", argv[2]);
-        return -1;
-    }
-
-    if (kill(-job->pgid, signum) < 0) {
+    if (kill(-target, signum) < 0) {
         perror("msh: kill");
         return -1;
     }
 
     if (signum == SIGKILL || signum == SIGTERM || signum == SIGHUP || signum == SIGINT) {
-        printf("msh: [%d] Killed - %d\n", job->job_id, job->pgid);
+        printf("[%d] Killed - %d\n", job_id, target);
+        while(waitpid(-target, NULL, WNOHANG) > 0);
+        if(job) del_job(shell, job->job_id);
         job = NULL;
     } 
     else if (signum == SIGSTOP || signum == SIGTSTP || signum == SIGTTIN || signum == SIGTTOU) {
         job->state = S_STOPPED;
-        printf("msh: [%d] Stopped - %d\n", job->job_id, job->pgid);
+        printf("[%d] Stopped - %d\n", job_id, target);
     } 
     else if (signum == SIGCONT) {
         job->state = S_RUNNING;
-        printf("msh: [%d] Resumed - %d\n", job->job_id, job->pgid);
+        printf("[%d] Resumed - %d\n", job_id, target);
     } 
     else {
-        printf("msh: [%d] Signaled (%d) - %d\n", job->job_id, signum, job->pgid);
+        printf("[%d] Signaled (%d) - %d\n", job_id, signum, target);
     }
 
     update_no_noti_jobs(shell);

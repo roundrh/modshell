@@ -25,8 +25,9 @@ int reset_terminal_mode(t_shell* shell){
  */
 int rawify(t_shell* shell) {
     
-    if(!shell) 
-        return -1;
+    if(!shell) return -1;
+
+    tcgetattr(shell->tty_fd, &(shell->term_ctrl.new_term_settings));
 
     shell->term_ctrl.new_term_settings.c_lflag &= ~(ICANON | ECHO);
     shell->term_ctrl.new_term_settings.c_cc[VMIN] = 1;
@@ -43,6 +44,8 @@ int rawify(t_shell* shell) {
 int init_s_term_ctrl(t_shell* shell){
 
     int errstats = tcgetattr(shell->tty_fd, &(shell->term_ctrl.ogl_term_settings));
+    tcsetattr(shell->tty_fd, TCSANOW, &shell->term_ctrl.ogl_term_settings);
+    
     shell->term_ctrl.new_term_settings = shell->term_ctrl.ogl_term_settings;
 
     return errstats;

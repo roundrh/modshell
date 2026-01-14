@@ -78,8 +78,7 @@ int del_job(t_shell* shell, int job_id){
 
     free(shell->job_table[i]);
     shell->job_table[i] = NULL;
-
-    shell->job_count--;
+    
     return 0;
 }
 
