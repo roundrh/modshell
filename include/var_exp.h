@@ -3,7 +3,10 @@
 
 #include<stdio.h>
 #include<stdlib.h>
+#include<sys/types.h>
+#include<pwd.h>
 #include<ctype.h>
+#include"limits.h"
 #include"shell.h"
 #include"ast.h"
 #include"lexer.h"
@@ -25,7 +28,7 @@
  * @define BUFFER_INITIAL_LEN
  * @brief Initial length of a buffer during malloc stage
  */
-#define BUFFER_INITIAL_LEN 512
+#define BUFFER_INITIAL_LEN 256
 
 /**
  * @define MAX_IFS_SIZE

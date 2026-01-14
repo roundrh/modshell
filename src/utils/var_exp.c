@@ -655,6 +655,55 @@ static t_param_op get_param_op(t_shell* shell, const char* src){
     return PARAM_OP_ERR;
 }
 
+static char* expand_tilde(char* src){
+
+    if(src[1] == '\0' || src[1] == '/'){
+
+        const char *home = getenv("HOME");
+        if (!home) return NULL;
+
+        size_t len = strlen(home) + strlen(src);
+        char *buf = malloc(len + 1);
+        if(!buf){
+            perror("malloc fatal");
+            return NULL;
+        }
+        strcpy(buf, home);
+        strcat(buf, src + 1);
+
+        return buf;
+    }
+
+    char* p = src + 1;
+    char uname[LOGIN_NAME_MAX];
+    size_t i = 0;
+    while(isalnum(*p) || *p == '_' || *p == '.' || *p == '-')
+        uname[i++] = *p++;
+    uname[i] = '\0';
+
+    struct passwd *pw = getpwnam(uname);
+    if (!pw || !pw->pw_dir)
+        return NULL;
+
+    const char* hdir = pw->pw_dir;
+
+    if(!hdir) 
+        return NULL;
+
+    size_t buf_len = strlen(hdir) + strlen(p);
+    char* buf = (char*)malloc(buf_len + 1);
+    if(!buf){
+        perror("malloc fatal");
+        return NULL;
+    }
+    buf[0] = '\0';
+
+    strcat(buf, hdir);
+    strcat(buf, p);
+
+    return buf;
+}
+
 static char* extract_var_and_alt(const char* src, char** alt_ptr, t_err_type* err) {
 
     const size_t INITIAL_VAR_VAL_LEN = 128;
@@ -728,6 +777,16 @@ static char* extract_var_and_alt(const char* src, char** alt_ptr, t_err_type* er
         free(alt);
         *err = err_bad_sub;
         return NULL;
+    }
+
+    if(alt[0] == '~'){
+        char* new_alt = expand_tilde(alt);
+        if(new_alt){
+            free(alt);
+            *alt_ptr = new_alt;
+            alt = *alt_ptr;
+            new_alt = NULL;
+        }
     }
     
     *alt_ptr = alt;
@@ -1197,7 +1256,9 @@ static int push_field(char*** fields, size_t* f_argc, size_t* f_cap, char** str)
     return 0;
 }
 
-static char** expand_fields(t_shell* shell, char* src) {
+static char** expand_fields(t_shell* shell, char** src_str) {
+
+    char* src = *src_str;
 
     size_t fields_cap = ARGV_INITIAL_LEN, fields_argc = 0;
     char** fields = calloc(sizeof(char*), fields_cap);
@@ -1213,6 +1274,16 @@ static char** expand_fields(t_shell* shell, char* src) {
         return NULL;
     }
     buffer[0] = '\0';
+
+    if(src[0] == '~'){
+        char* new_src = expand_tilde(src);
+        if(new_src){
+            free(*src_str);
+            *src_str = new_src;
+            src = *src_str;
+            new_src = NULL;
+        }
+    }
 
     size_t buffer_cap = BUFFER_INITIAL_LEN, buffer_size = 0, i = 0;
     bool single_q = false, double_q = false;
@@ -1437,16 +1508,6 @@ static char* alloc_sbsh_buf(t_token** cr_tok, size_t* index, const size_t segmen
     return subshell_buf;
 }
 
-// static bool need_space_between(t_token *a, t_token *b){
-    
-//     if (!a || !b) return false;
-
-//     const char *end_a = a->start + a->len;
-//     const char *start_b = b->start;
-
-//     return start_b > end_a;
-// }
-
 static char* alloc_param_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
 
     t_token* curr_tok = *cr_tok;
@@ -1649,7 +1710,7 @@ t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const 
             }
         }
 
-        char** expanded_fields = expand_fields(shell, str);
+        char** expanded_fields = expand_fields(shell, &str);
         if(!expanded_fields){
             free(str);
             str = NULL;
