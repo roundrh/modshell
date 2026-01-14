@@ -4,6 +4,86 @@
  */
 
 #include"builtins.h"
+//#include"sigtable_init.h"
+
+static int update_no_noti_jobs(t_shell* shell){
+
+    sigset_t block_mask, old_mask;
+    int reap_flag = 1;
+    if(sigemptyset(&block_mask) == -1){
+        perror("sigemptyset");
+        reap_flag = 0;
+    }
+    if(sigaddset(&block_mask, SIGCHLD) == -1){
+        perror("sigaddset");
+        reap_flag = 0;  
+    }
+
+    if(sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1){
+        perror("sigproc");
+        reap_flag = 0;
+    }
+
+    size_t i = 0;
+    t_job* job = NULL;
+
+    if(!reap_flag){
+        return -1;
+    }
+
+    while (i < shell->job_table_cap) {
+        job = shell->job_table[i];
+        if (!job) {
+            i++;
+            continue;
+        }
+
+        int status;
+        pid_t pid;
+
+        while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
+
+            t_process* process = find_process_in_job(job, pid);
+            if (!process) 
+                break;
+
+            if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                process->completed = 1;
+                process->stopped = 0;
+                process->running = 0;
+            } else if (WIFSTOPPED(status)) {
+                process->stopped = 1;
+                process->completed = 0;
+                process->running = 0;
+            } else if (WIFCONTINUED(status)) {
+                process->running = 1;
+                process->stopped = 0;
+                process->completed = 0;
+            }
+        }
+
+        if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
+            job->state = S_COMPLETED;
+        } else if (job && is_job_stopped(job)) {
+            job->state = S_STOPPED;
+            job->position = P_BACKGROUND;
+        } else if(job && job->position == P_BACKGROUND){
+            job->state = S_RUNNING;
+        }
+
+        i++;
+    }
+
+    if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){
+        perror("sigproc");
+    }
+    
+    /* enforcer */
+    if(is_job_table_empty(shell)){
+        shell->job_count = 0;
+    }
+    return 0;
+}
 
 static void cleanup_argv(char** argv){
 
@@ -249,6 +329,8 @@ int cd_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
 int jobs_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
+    update_no_noti_jobs(shell);
+
     for(size_t i = 0; i < shell->job_table_cap; i++){
 
         if(shell->job_table[i] == NULL) 
@@ -266,12 +348,14 @@ int jobs_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
 int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
+    update_no_noti_jobs(shell);
+
     int i = 0;
     while(argv[i] != NULL) i++;
     int argc = i;
 
     if(argc < 2 || argc > 2){
-        fprintf(stderr, "\nIncorrect usage: fg %%<JOB_ID>");
+        fprintf(stderr, "\nmsh: fg: syntax error: fg %%<JOB_ID>");
         return -1;
     }
 
@@ -283,7 +367,7 @@ int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
     int job_id = atoi(id_str);
     if (job_id <= 0) {
-        fprintf(stderr, "\nInvalid job id.");
+        fprintf(stderr, "\nmsh: invalid job id.");
         return -1;
     }
 
@@ -333,6 +417,8 @@ int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
 }
 
 int bg_builtin(t_ast_n* node, t_shell* shell, char** argv){
+
+    update_no_noti_jobs(shell);
 
     if(!argv) 
         return -1;
@@ -394,6 +480,8 @@ int bg_builtin(t_ast_n* node, t_shell* shell, char** argv){
 }
 
 int kill_builtin(t_ast_n* node, t_shell* shell, char** argv){
+
+    update_no_noti_jobs(shell);
 
     int i = 0;
     while(argv[i] != NULL) i++;

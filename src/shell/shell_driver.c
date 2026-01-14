@@ -44,7 +44,7 @@ static int reap_sigchld_jobs(t_shell* shell){
         int status;
         pid_t pid;
 
-        while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
+        while ((pid = waitpid(-job->pgid, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
 
             t_process* process = find_process_in_job(job, pid);
             if (!process) 
@@ -66,19 +66,15 @@ static int reap_sigchld_jobs(t_shell* shell){
         }
 
         if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
-
             job->state = S_COMPLETED;
-            printf("[+] Job completed: %d\n", job->job_id);
+            print_job_info(job);
             del_job(shell, job->job_id);
         } else if (job && is_job_stopped(job)) {
-
             job->state = S_STOPPED;
             job->position = P_BACKGROUND;
-            printf("\n[-] Job stopped: %d", job->job_id);
+            print_job_info(job);
         } else if(job && job->position == P_BACKGROUND){
-
             job->state = S_RUNNING;
-            //printf("\n[>] Job running: %d", job->job_id);
         }
 
         i++;

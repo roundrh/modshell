@@ -90,7 +90,7 @@ static t_wait_status wait_for_foreground_job(t_job* job, t_shell* shell) {
             job->state = S_STOPPED;
             job->position = P_BACKGROUND;
 
-            job->last_exit_status = WEXITSTATUS(status);
+            job->last_exit_status = WSTOPSIG(status);
             shell->last_exit_status = job->last_exit_status;
             return WAIT_STOPPED;
 
@@ -632,6 +632,10 @@ static int exec_job(char* cmd_buf, t_ast_n* node, t_shell* shell, int subshell, 
     } else if(shell->job_control_flag) {
         if(!subshell)
             print_job_info(job);
+
+        /* lazy but works until i fix the slight timing issue for quick commands like ls & or pwd &*/
+        usleep(10000);
+
         shell->last_exit_status = 0;
     } else if(!shell->job_control_flag && job->position == P_FOREGROUND){
         int status = 0;
@@ -713,10 +717,8 @@ int parse_and_execute(char** cmd_buf, t_shell* shell, t_token_stream* token_stre
     if(exec_flag){
         exec_list(*cmd_buf, root, shell, 0, NULL);
     }
-    
-    if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){
-        perror("sigproc");
-    }
+
+    sigprocmask(SIG_SETMASK, &old_mask, NULL);
 
     cleanup_ast(root);
     restore_io(shell);

@@ -238,9 +238,9 @@ void print_job_info(t_job* job){
         return;
 
     if(job->state == S_RUNNING)
-        printf("\n[%d] %d - Running", job->job_id, job->pgid);
+        printf("[%d] %d - Running\n", job->job_id, job->pgid);
     if(job->state == S_STOPPED)
-        printf("\n[%d] %d - Stopped", job->job_id, job->pgid);
+        printf("[%d] %d - Stopped\n", job->job_id, job->pgid);
     if(job->state == S_COMPLETED)
-        printf("\n[%d] %d - Completed", job->job_id, job->pgid);
+        printf("[%d] %d - Completed\n", job->job_id, job->pgid);
 }
