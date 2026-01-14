@@ -62,6 +62,7 @@ static int reap_sigchld_jobs(t_shell* shell) {
             fprintf(stdout, "\n");
             print_job_info(job);
         } else if (is_job_completed(job)) {
+            job->state = S_COMPLETED;
             if (job->position == P_BACKGROUND) {
                 fprintf(stdout, "\n");
                 print_job_info(job);
