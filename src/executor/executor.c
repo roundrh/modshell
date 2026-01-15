@@ -124,16 +124,6 @@ static t_job* make_job(t_shell* shell, char* buf, t_state state, pid_t pgid, t_p
 
     init_job_struct(job);
 
-    if(buf != NULL){
-        job->command = strdup(buf);
-        if(job->command == NULL){
-            cleanup_job_struct(job);
-            return NULL;
-        }
-    } else{
-        job->command = NULL;
-    }
-
     job->position = pos;
     job->pgid = pgid;
     job->state = state;
@@ -238,7 +228,6 @@ static pid_t exec_bg_builtin(t_ast_n* node, t_shell* shell, t_job* job, t_ast_n*
         perror("fork fail exec_extern");
         return -1;
     }  //fork error.
-
     
     if(pid == 0){
 
@@ -277,6 +266,7 @@ static pid_t exec_simple_command(t_ast_n* node, t_shell* shell, t_job* job, int 
         cleanup_argv(argv);
         return 0;
     }
+    job->command = strdup(argv[0]);
 
     t_ht_node* builtin_imp =  hash_find_builtin(&shell->builtins, argv[0]);
     if(builtin_imp == NULL){

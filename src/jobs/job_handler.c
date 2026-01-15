@@ -262,9 +262,9 @@ void print_job_info(t_job* job){
         return;
 
     if(job->state == S_RUNNING)
-        printf("[%d] %d - Running\n", job->job_id, job->pgid);
+        printf("[%d] %d - running       %s\n", job->job_id, job->pgid, job->command);
     if(job->state == S_STOPPED)
-        printf("[%d] %d - Stopped\n", job->job_id, job->pgid);
+        printf("[%d] %d - stopped       %s\n", job->job_id, job->pgid, job->command);
     if(job->state == S_COMPLETED)
-        printf("[%d] %d - Completed\n", job->job_id, job->pgid);
+        printf("[%d] %d - done          %s\n", job->job_id, job->pgid, job->command);
 }

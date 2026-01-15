@@ -288,7 +288,7 @@ int help_builtin(t_ast_n* node, t_shell* shell, char** argv) {
     printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] > [filename]", "Truncate output to file, create if not found.");
     printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] >> [filename]", "Append output to file, create if not found.");
     printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] < [filename]", "Input from file to command.");
-    printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] << [filename]", "Heredoc from file.");
+    printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] << [filename]", "Heredoc EOF.");
 
     printf("\n");
 

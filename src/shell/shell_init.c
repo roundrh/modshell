@@ -1,6 +1,5 @@
 #include"shell_init.h"
 
-
 /**
  * @file shell_init.c
  * 
