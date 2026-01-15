@@ -1423,16 +1423,6 @@ static bool next_is_arith(t_token* curr_tok, const size_t idx, const size_t segm
         return false;
 }
 
-static bool next_is_param(t_token* curr_tok, const size_t idx, const size_t segment_len){
-
-    t_token* next = curr_tok + 1;
-    if(idx + 1 < segment_len && next->type == TOKEN_OPEN_BRACE 
-    && curr_tok->len == 1 && curr_tok->start 
-    && curr_tok->start[0] == '$')
-        return true;
-    else
-        return false;
-}
 static bool next_is_subsh(t_token* curr_tok, const size_t idx, const size_t segment_len){
 
     t_token* next = curr_tok + 1;
@@ -1506,70 +1496,6 @@ static char* alloc_sbsh_buf(t_token** cr_tok, size_t* index, const size_t segmen
 
     *cr_tok = curr_tok; *index = idx;
     return subshell_buf;
-}
-
-static char* alloc_param_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
-
-    t_token* curr_tok = *cr_tok;
-    size_t idx = *index;
-
-    char* param_buf = (char*)malloc(sizeof(char) * BUFFER_INITIAL_LEN);
-    if(!param_buf){
-        return NULL;
-    }
-    size_t param_buf_cap = BUFFER_INITIAL_LEN;
-
-    memcpy(param_buf, "${", 2);
-    size_t param_buf_len = 2;
-    param_buf[param_buf_len] = '\0';
-
-    curr_tok += 2;
-    idx += 2;
-    int depth = 1;
-    while(idx < segment_len && curr_tok){
-
-        if (curr_tok->type == TOKEN_OPEN_BRACE)
-            depth++;
-        else if (curr_tok->type == TOKEN_CLOSE_BRACE)
-            depth--;
-
-        if (depth == 0)
-            break;
-
-        while (param_buf_len + curr_tok->len + 1 > param_buf_cap) {
-            if (realloc_buf(&param_buf, &param_buf_cap) == -1) {
-                perror("realloc buf fatal");
-                free(param_buf);
-                return NULL;
-            }
-        }
-
-        memcpy(param_buf + param_buf_len, curr_tok->start, curr_tok->len);
-        param_buf_len += curr_tok->len;
-        t_token* next = curr_tok + 1;
-        if(curr_tok->type != TOKEN_EQUAL && next->type != TOKEN_EQUAL)
-            param_buf[param_buf_len++] = ' ';
-
-        curr_tok++;
-        idx++;
-    }
-
-    if(param_buf_len + 2 > param_buf_cap){
-        if(realloc_buf(&param_buf, &param_buf_cap) == -1){
-            free(param_buf);
-            return NULL;
-        }
-    }
-
-    param_buf_len--;
-    param_buf[param_buf_len++] = '}';
-    param_buf[param_buf_len] = '\0';
-
-    curr_tok++; 
-    idx++;
-
-    *cr_tok = curr_tok; *index = idx;
-    return param_buf;
 }
 
 static char* alloc_arith_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
@@ -1675,10 +1601,8 @@ t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const 
     size_t argc = 0;
     bool subshell = false;
     bool arith = false;
-    bool param = false;
     char* subshell_buf = NULL;
     char* arith_buf = NULL;
-    char* param_buf = NULL;
     t_token* curr_tok = start;
     size_t idx = 0;
     while(idx < segment_len) {
@@ -1701,13 +1625,6 @@ t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const 
                 return err_fatal;
             }
             arith = true;
-        } else if(next_is_param(curr_tok, idx, segment_len)){
-            param_buf = alloc_param_buf(&curr_tok, &idx, segment_len);
-            if(!param_buf){
-                cleanup_argv(argv_local);
-                return err_fatal;
-            }
-            param = true;
         }
         
         char* str = NULL;
@@ -1717,10 +1634,7 @@ t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const 
         } else if(arith){ 
             str = arith_buf;
             arith_buf = NULL;
-        } else if(param){
-            str = param_buf;
-            param_buf = NULL;
-        }else{
+        } else{
             str = make_string(curr_tok);
             if(!str){
                 perror("malloc strdup");
@@ -1759,13 +1673,12 @@ t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const 
 
         cleanup_argv(expanded_fields);
 
-        if(!subshell && !arith && !param){
+        if(!subshell && !arith){
             curr_tok++;
             idx++;
         }
         subshell = false;
         arith = false;
-        param = false;
     }
 
     *argv = argv_local;

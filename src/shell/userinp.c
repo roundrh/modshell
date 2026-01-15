@@ -163,9 +163,11 @@ static t_dllnode* search_history(t_shell* shell, char* cmd){
 }
 
 static void render_suggestion(char *cmd, size_t cmd_len, t_dllnode *suggestion_node) {
-    if (suggestion_node && strlen(suggestion_node->strbg) > cmd_len) {
+
+    if(cmd_len == 0) 
+        return;
+    if (suggestion_node) {
         char *suggestion = suggestion_node->strbg + cmd_len;
-        // Save cursor, set gray, print suggestion, reset color, restore cursor
         HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[s", 3, NULL);
         HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[38;5;8m", 10, NULL);
         HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, suggestion, strlen(suggestion), NULL);

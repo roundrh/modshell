@@ -35,8 +35,6 @@ t_token_type get_token_type(const char *c, size_t *len){
     if (c[0] == '(') { *len = 1; return TOKEN_OPEN_PAR; }
     if (c[0] == ')') { *len = 1; return TOKEN_CLOSE_PAR; }
     if (c[0] == ';') { *len = 1; return TOKEN_SEQ; }
-    if (c[0] == '{') { *len = 1; return TOKEN_OPEN_BRACE; }
-    if (c[0] == '}') { *len = 1; return TOKEN_CLOSE_BRACE; }
 
     return TOKEN_SIMPLE;
 }
