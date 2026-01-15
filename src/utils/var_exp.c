@@ -1570,25 +1570,6 @@ static int redir_tok_found(t_token* tok){
     return 0;
 }
 
-// static bool has_glob_chars(const char* field){
-
-//     for(int i = 0; field[i] != '\0'; i++){
-//         if(field[i] == '*') return true;
-//         if(field[i] == '')
-//     }
-
-// }
-// static bool check_glob_needed(char** fields){
-    
-//     size_t i = 0;
-//     while(fields[i]){
-
-//         if()
-
-//         i++;
-//     }
-// }
-
 t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const size_t segment_len) {
 
     size_t argv_cap = ARGV_INITIAL_LEN;
