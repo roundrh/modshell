@@ -224,6 +224,7 @@ int main(int argc, char** argv){
 
             reset_terminal_mode(&shell_state);
             HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[?25h", 6, cmd_line_buf);
+            if(write(shell_state.tty_fd, "\033[5 q", 5) == -1) perror("write");
 
             char* dir = getcwd(NULL, 0);
             if (!dir) { perror("getcwd"); exit(1); }
