@@ -490,7 +490,6 @@ int bg_builtin(t_ast_n* node, t_shell* shell, char** argv){
         p = p->next;
     }
 
-    printf("\n[%d] %d", job->job_id, job->pgid);
     print_job_info(job); 
     printf(" &\n"); 
 

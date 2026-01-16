@@ -428,8 +428,10 @@ char* read_user_inp(t_shell* shell){
             continue;
         }
         
-        if(c == '\n' || c == '\r')
+        if(c == '\n' || c == '\r'){
+            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[K", 3, cmd);
             break;
+        }
 
         if (cmd_cap < MAX_COMMAND_LENGTH - 1 && c != '\x1b' && c != '\b') {
     
