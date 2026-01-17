@@ -8,6 +8,7 @@
 /**
  * @brief initiliazes dll struct to null
  * @param list pointer to dll struct
+ * @return always returns 0
  */
 int init_dll(t_dll* list){
 

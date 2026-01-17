@@ -1259,6 +1259,7 @@ static int push_field(char*** fields, size_t* f_argc, size_t* f_cap, char** str)
 static char** expand_fields(t_shell* shell, char** src_str) {
 
     char* src = *src_str;
+    size_t len = strlen(src);
 
     size_t fields_cap = ARGV_INITIAL_LEN, fields_argc = 0;
     char** fields = calloc(sizeof(char*), fields_cap);
@@ -1322,7 +1323,7 @@ static char** expand_fields(t_shell* shell, char** src_str) {
         if (!single_q && src[i] == '$') {
 
             char c[3];
-            if(src[i + 2] == '('){
+            if(len > 2 && src[i + 2] == '('){
                 c[0] = src[i + 1];
                 c[1] = src[i + 2];
                 c[2] = '\0';

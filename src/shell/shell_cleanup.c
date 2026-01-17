@@ -5,7 +5,6 @@
  * @brief implementations of cleanup for shell struct
  */
 
-
 /**
  * @brief cleans up shell struct
  * @param shell pointer to shell struct
