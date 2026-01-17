@@ -24,7 +24,6 @@ typedef enum e_token_type{
     TOKEN_AND,
     TOKEN_BG,
     TOKEN_SEQ,
-    TOKEN_EQUAL,
 } t_token_type;
 
 typedef struct s_token{

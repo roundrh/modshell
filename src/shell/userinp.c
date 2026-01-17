@@ -164,16 +164,20 @@ static t_dllnode* search_history(t_shell* shell, char* cmd){
 
 static void render_suggestion(char *cmd, size_t cmd_len, t_dllnode *suggestion_node) {
 
-    if(cmd_len == 0) 
+    if(cmd_len == 0 || !suggestion_node) {
+        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, NULL);
         return;
-    if (suggestion_node) {
-        char *suggestion = suggestion_node->strbg + cmd_len;
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[s", 3, NULL);
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[38;5;8m", 10, NULL);
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, suggestion, strlen(suggestion), NULL);
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[0m", 4, NULL);
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[u", 3, NULL);
     }
+
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[s", 3, NULL);
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, NULL);
+
+    char *suggestion = suggestion_node->strbg + cmd_len;
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[38;5;8m", 10, NULL);
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, suggestion, strlen(suggestion), NULL);
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[0m", 4, NULL);
+
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[u", 3, NULL);
 }
 
 /**
@@ -393,6 +397,11 @@ char* read_user_inp(t_shell* shell){
         
         if(c == '\b' || c == 127){
             if(cmd_idx > 0){
+
+                if (cmd_idx == cmd_len) {
+                    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, cmd);
+                }
+
                 if(cmd_idx < cmd_len && cmd_idx > 0){
 
                     HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
@@ -419,7 +428,7 @@ char* read_user_inp(t_shell* shell){
                     cmd_idx--;
                     cmd[cmd_len] = '\0';
                     HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
-                    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[K", 3, cmd);
+                    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, cmd);
                 }
                 suggestion_node = (cmd_idx == cmd_len) ? search_history(shell, cmd) : NULL;
                 render_suggestion(cmd, cmd_len, suggestion_node);
@@ -429,11 +438,16 @@ char* read_user_inp(t_shell* shell){
         }
         
         if(c == '\n' || c == '\r'){
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[K", 3, cmd);
+            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, cmd);
             break;
         }
 
         if (cmd_cap < MAX_COMMAND_LENGTH - 1 && c != '\x1b' && c != '\b') {
+
+
+            if (cmd_idx == cmd_len) {
+                HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, cmd);
+            }
     
             size_t count_to_shift = (cmd_len - cmd_idx);
             if(cmd_cap <= cmd_len + 1){
@@ -451,18 +465,15 @@ char* read_user_inp(t_shell* shell){
             HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, &c, 1, cmd);
 
             if (count_to_shift > 0) {
-                HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, &cmd[cmd_idx], count_to_shift, cmd);
 
-                HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[K", 3, cmd);
+                HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, &cmd[cmd_idx], count_to_shift, cmd);
 
                 char move_cursor_back[32];
                 int n = snprintf(move_cursor_back, sizeof(move_cursor_back), "\x1b[%zuD", count_to_shift);
                 HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, move_cursor_back, n, cmd);
-        
+
                 suggestion_node = NULL;
             } else {
-                HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[K", 3, cmd);
-        
                 suggestion_node = search_history(shell, cmd);
                 render_suggestion(cmd, cmd_len, suggestion_node);
             }

@@ -244,18 +244,63 @@ static char* strip_quotes(const char* src) {
     return dst;
 }
 
-static char* make_string(t_token* tok){
+static char* make_word(const t_token* tokens, size_t* idx, const size_t segment_len) {
 
-    if(!tok || tok->start == NULL || tok->type == -1 || tok->len == 0)
-        return strdup("");
-
-    char* string = strndup(tok->start, tok->len);
-    if(!string){
-        perror("strndup");
+    char* buf = calloc(1, BUFFER_INITIAL_LEN);
+    if (!buf)
         return NULL;
+
+    size_t buf_cap = BUFFER_INITIAL_LEN;
+    size_t buf_len = 0;
+    bool paren = false;
+    bool space = false;
+    int depth = 0;
+    while (*idx < segment_len) {
+
+        const t_token* crtok = &tokens[*idx];
+        while (buf_len + crtok->len + 1 > buf_cap) {
+            if (realloc_buf(&buf, &buf_cap) == -1) {
+                free(buf);
+                return NULL;
+            }
+        }
+
+        if(crtok->len == 1 && *(crtok->start) == '(') {
+            depth++;
+            paren = true;
+            space = false;
+        }
+        if(crtok->len == 1 && *(crtok->start) == ')') {
+            depth--;
+            paren = false;
+            if(depth != 0)
+                space = false;
+        }
+
+        memcpy(buf + buf_len, crtok->start, crtok->len);
+        buf_len += crtok->len;
+        buf[buf_len] = '\0';
+
+        char *p = crtok->start + crtok->len;
+        if ( !paren  && (*p == ' '  || *p == '\t' || *p == '\n' ||
+            *p == '|'  || *p == '&'  || *p == ';'  ||
+            *p == '<'  || *p == '>'  || *p == '\0') ) {
+
+            (*idx)++;
+            break;
+        }
+        if(paren){
+            if(space){
+                buf[buf_len++] = ' ';
+                buf[buf_len] = '\0';
+            } 
+            space = true;
+        }
+
+        (*idx)++;
     }
 
-    return string;
+    return buf;
 }
 
 static t_exp_handler find_handler(const char* c) {
@@ -1109,6 +1154,7 @@ char* expand_braces(t_shell* shell, const char* src, size_t* i){
 
 char* expand_subshell(t_shell* shell, const char* src, size_t* i){
 
+    size_t slen = strlen(src);
     size_t idx = *i;
     char* cmd_line = (char*)malloc(BUFFER_INITIAL_LEN);
     if(!cmd_line){
@@ -1120,7 +1166,7 @@ char* expand_subshell(t_shell* shell, const char* src, size_t* i){
     int depth = 1;
     idx++;
     size_t w = 0;
-    while(depth > 0){
+    while(depth > 0 && idx <= slen){
         if(w + 1 >= l_cap){
             if(realloc_buf(&cmd_line, &l_cap) == -1){
                 perror("realloc fatal");
@@ -1129,12 +1175,23 @@ char* expand_subshell(t_shell* shell, const char* src, size_t* i){
             }
         }
 
-        if (src[idx] == '(') depth++;
-        else if (src[idx] == ')') depth--;
+        /* parens will be whitespace seperated */
+        if (idx + 1 <= slen && src[idx] == '$' && src[idx + 2] == '(') {
+            depth++;
+            cmd_line[w++] = src[idx++];
+            idx++;
+            cmd_line[w++] = src[idx++];
+            continue;
+        }
 
-        if (depth == 0) break;
+        if (src[idx] == ')') {
+            depth--;
+            if(depth == 0)
+                break;
+        }
 
         cmd_line[w++] = src[idx++];
+        cmd_line[w] = '\0';
     }
     cmd_line[w] = '\0';
 
@@ -1323,7 +1380,7 @@ static char** expand_fields(t_shell* shell, char** src_str) {
         if (!single_q && src[i] == '$') {
 
             char c[3];
-            if(len > 2 && src[i + 2] == '('){
+            if(i + 3 <= len && src[i + 2] == '('){
                 c[0] = src[i + 1];
                 c[1] = src[i + 2];
                 c[2] = '\0';
@@ -1411,153 +1468,6 @@ static char** expand_fields(t_shell* shell, char** src_str) {
     return fields;
 }
 
-static bool next_is_arith(t_token* curr_tok, const size_t idx, const size_t segment_len){
-
-    t_token* next = curr_tok + 1;
-    t_token* nextnext = next + 1;
-    if(idx + 1 < segment_len && next->type == TOKEN_OPEN_PAR 
-    && curr_tok->len == 1 && curr_tok->start 
-    && curr_tok->start[0] == '$'
-    && nextnext->type == TOKEN_OPEN_PAR)
-        return true;
-    else
-        return false;
-}
-
-static bool next_is_subsh(t_token* curr_tok, const size_t idx, const size_t segment_len){
-
-    t_token* next = curr_tok + 1;
-    t_token* nextnext = next + 1;
-    if(idx + 1 < segment_len && next->type == TOKEN_OPEN_PAR 
-    && curr_tok->len == 1 && curr_tok->start 
-    && curr_tok->start[0] == '$'
-    && nextnext->type != TOKEN_OPEN_PAR)
-        return true;
-    else
-        return false;
-}
-
-static char* alloc_sbsh_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
-
-    t_token* curr_tok = *cr_tok;
-    size_t idx = *index;
-
-    int depth = 1;
-    char* subshell_buf = (char*)malloc(BUFFER_INITIAL_LEN);
-    if(!subshell_buf){
-        perror("malloc");
-        return NULL;
-    }
-    size_t sbsh_buf_cap = BUFFER_INITIAL_LEN;
-
-    memcpy(subshell_buf, "$(", 2);
-    size_t sbsh_buf_len = 2;
-    subshell_buf[sbsh_buf_len] = '\0';
-
-    curr_tok += 2;
-    idx += 2;
-
-    while(idx < segment_len && depth > 0){
-
-        if (curr_tok->type == TOKEN_OPEN_PAR)
-            depth++;
-        else if (curr_tok->type == TOKEN_CLOSE_PAR)
-            depth--;
-
-        if (depth == 0)
-            break;
-
-        while (sbsh_buf_len + curr_tok->len + 1 > sbsh_buf_cap) {
-            if (realloc_buf(&subshell_buf, &sbsh_buf_cap) == -1) {
-                perror("realloc buf fatal");
-                free(subshell_buf);
-                return NULL;
-            }
-        }
-
-        memcpy(subshell_buf + sbsh_buf_len, curr_tok->start, curr_tok->len);
-        sbsh_buf_len += curr_tok->len;
-        subshell_buf[sbsh_buf_len++] = ' ';
-
-        curr_tok++;
-        idx++;
-    }
-    if(sbsh_buf_len + 2 > sbsh_buf_cap){
-        if(realloc_buf(&subshell_buf, &sbsh_buf_cap) == -1){
-            free(subshell_buf);
-            return NULL;
-        }
-    }
-
-    subshell_buf[sbsh_buf_len++] = ')';
-    subshell_buf[sbsh_buf_len] = '\0';
-
-    curr_tok++; 
-    idx++;
-
-    *cr_tok = curr_tok; *index = idx;
-    return subshell_buf;
-}
-
-static char* alloc_arith_buf(t_token** cr_tok, size_t* index, const size_t segment_len){
-    t_token* curr_tok = *cr_tok;
-    size_t idx = *index;
-
-    char* arith_buf = (char*)calloc(sizeof(char), BUFFER_INITIAL_LEN);
-    if(!arith_buf){
-        perror("malloc fatal");
-        return NULL;
-    }
-    size_t arith_buf_cap = BUFFER_INITIAL_LEN;
-    memcpy(arith_buf, "$((", 3);
-    size_t arith_buf_len = 3;
-
-    curr_tok+=3;
-    idx+=3;
-    int depth = 2;
-    while(idx < segment_len && depth > 0){
-
-        if (curr_tok->type == TOKEN_OPEN_PAR)
-            depth++;
-        else if (curr_tok->type == TOKEN_CLOSE_PAR)
-            depth--;
-
-        if (depth == 0)
-            break;
-
-        while (arith_buf_len + curr_tok->len + 1 > arith_buf_cap) {
-            if (realloc_buf(&arith_buf, &arith_buf_cap) == -1) {
-                perror("realloc buf fatal");
-                free(arith_buf);
-                return NULL;
-            }
-        }
-
-        memcpy(arith_buf + arith_buf_len, curr_tok->start, curr_tok->len);
-        arith_buf_len += curr_tok->len;
-        arith_buf[arith_buf_len++] = ' ';
-
-        curr_tok++;
-        idx++;
-    }
-    if(arith_buf_len + 2 > arith_buf_cap){
-        if(realloc_buf(&arith_buf, &arith_buf_cap) == -1){
-            free(arith_buf);
-            return NULL;
-        }
-    }
-
-    memcpy(arith_buf + arith_buf_len, ")", 1);
-    arith_buf_len++;
-    arith_buf[arith_buf_len] = '\0';
-
-    curr_tok++; 
-    idx++;
-
-    *cr_tok = curr_tok; *index = idx;
-    return arith_buf;
-}
-
 static int redir_tok_found(t_token* tok){
 
     if(!tok || tok->type == -1)
@@ -1571,100 +1481,48 @@ static int redir_tok_found(t_token* tok){
     return 0;
 }
 
-t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* start, const size_t segment_len) {
+t_err_type expand_make_argv(t_shell* shell, char*** argv, t_token* tokens, const size_t segment_len) {
 
     size_t argv_cap = ARGV_INITIAL_LEN;
     char** argv_local = calloc(argv_cap, sizeof(char*));
-    if(!argv_local){
-        perror("calloc");
+    if(!argv_local) 
         return err_fatal;
-    }
 
     size_t argc = 0;
-    bool subshell = false;
-    bool arith = false;
-    char* subshell_buf = NULL;
-    char* arith_buf = NULL;
-    t_token* curr_tok = start;
     size_t idx = 0;
+
     while(idx < segment_len) {
 
-        if(redir_tok_found(curr_tok)) 
+        /* this has to change - POSIX allows redir at the start of cmds */
+        if(redir_tok_found(&tokens[idx])) 
             break;
 
-        /*Check for special expansion: subshell*/
-        if(next_is_subsh(curr_tok, idx, segment_len)){
-            subshell_buf = alloc_sbsh_buf(&curr_tok, &idx, segment_len);
-            if(!subshell_buf){
-                cleanup_argv(argv_local);
-                return err_fatal;
-            }
-            subshell = true;
-        } else if(next_is_arith(curr_tok, idx, segment_len)){
-            arith_buf = alloc_arith_buf(&curr_tok, &idx, segment_len);
-            if(!arith_buf){
-                cleanup_argv(argv_local);
-                return err_fatal;
-            }
-            arith = true;
-        }
-        
-        char* str = NULL;
-        if(subshell){
-            str = subshell_buf;
-            subshell_buf = NULL;
-        } else if(arith){ 
-            str = arith_buf;
-            arith_buf = NULL;
-        } else{
-            str = make_string(curr_tok);
-            if(!str){
-                perror("malloc strdup");
-                cleanup_argv(argv_local);
-                return err_fatal;
-            }
+        char* str = make_word(tokens, &idx, segment_len);
+        if(!str) {
+            cleanup_argv(argv_local);
+            return err_fatal;
         }
 
         char** expanded_fields = expand_fields(shell, &str);
-        if(!expanded_fields){
-            free(str);
-            str = NULL;
-            idx++;
-            continue;
-        }
-
         free(str);
-        str = NULL;
 
         if (!expanded_fields) 
             continue;
 
         for (int i = 0; expanded_fields[i]; i++) {
-
-            if (argc >= argv_cap - 1){
-                if(realloc_argv(&argv_local, &argv_cap) == -1){
+            if (argc >= argv_cap - 1) {
+                if(realloc_argv(&argv_local, &argv_cap) == -1) {
                     cleanup_argv(expanded_fields);
                     cleanup_argv(argv_local);
                     return err_fatal;
                 }
             }
-            
             argv_local[argc++] = strip_quotes(expanded_fields[i]);
             argv_local[argc] = NULL;
         }
-
         cleanup_argv(expanded_fields);
-
-        if(!subshell && !arith){
-            curr_tok++;
-            idx++;
-        }
-        subshell = false;
-        arith = false;
     }
 
     *argv = argv_local;
-    argv_local = NULL;
-
     return err_none;
 }
