@@ -11,6 +11,7 @@
 #include"ast.h"
 #include"lexer.h"
 #include<sys/wait.h>
+#include"glob.h"
 
 /**
   * @define ARGV_INITIAL_LEN
@@ -71,17 +72,17 @@ typedef enum e_err_type{
 typedef enum e_param_op {
 
     PARAM_OP_ERR = -1,
-    PARAM_OP_NONE,        // ${VAR}
-    PARAM_OP_MINUS,       // ${VAR:-word}
-    PARAM_OP_EQUAL,       // ${VAR:=word}
-    PARAM_OP_PLUS,        // ${VAR:+word}
-    PARAM_OP_QUESTION,    // ${VAR:?word}
-    PARAM_OP_HASH,        // ${VAR#pattern}
-    PARAM_OP_HASH_HASH,   // ${VAR##pattern}
-    PARAM_OP_PERCENT,     // ${VAR%pattern}
+    PARAM_OP_NONE,            // ${VAR}
+    PARAM_OP_MINUS,           // ${VAR:-word}
+    PARAM_OP_EQUAL,           // ${VAR:=word}
+    PARAM_OP_PLUS,            // ${VAR:+word}
+    PARAM_OP_QUESTION,        // ${VAR:?word}
+    PARAM_OP_HASH,            // ${VAR#pattern}
+    PARAM_OP_HASH_HASH,       // ${VAR##pattern}
+    PARAM_OP_PERCENT,         // ${VAR%pattern}
     PARAM_OP_PERCENT_PERCENT, // ${VAR%%pattern}
-    PARAM_OP_COLON,       // ${VAR:offset} or ${VAR:offset:length}
-    PARAM_OP_LEN
+    PARAM_OP_COLON,           // ${VAR:offset} or ${VAR:offset:length}
+    PARAM_OP_LEN              // ${#VAR}
 } t_param_op;
 
 /* typedef function pointer for expansion handlers - used by dispatcher */
