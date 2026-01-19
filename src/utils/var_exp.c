@@ -867,17 +867,6 @@ static char *extract_var_and_alt(const char *src, char **alt_ptr,
     idx++;
   }
 
-  if(!alt || !var || var_len == 0 || alt_len == 0){
-    fprintf(stderr, "msh: bad substitution");
-    if(alt){
-      free(alt);
-      *alt_ptr = NULL;
-    } if(var){
-      free(var);
-    }
-    return NULL;
-  } 
-
   if (var_len == 0) {
     free(var);
     free(alt);
@@ -1038,8 +1027,11 @@ static char *expand_param_op(t_shell *shell, const char *src, t_param_op op,
   if(!var || !alt){
     if(*err == err_fatal)
       exit(EXIT_FAILURE);
-    else
+    else{
+      if(*err == err_bad_sub)
+        fprintf(stderr, "\nmsh: bad substitution");
       return NULL;
+    }
   }
 
   if (*err != err_none) {
