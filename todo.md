@@ -3,7 +3,8 @@ BUGS:
 kill -9 %$(echo 1):
 %$ standalone string (echo 1) detected at wrong time in make_string [FIXED]
 double backspace to erase last suggestion on empty text
-
+echo ${VAR:-$(echo $LS_COLORS)}
+./msh < out.txt for extremely large input
 
 IMPLEMENT:
 [X] Nested Param Expansion: only recurse for ${} and $(()) - no other expansion I have right now requires nested
