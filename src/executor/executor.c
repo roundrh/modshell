@@ -702,7 +702,7 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
   } else if (!shell->job_control_flag && job->position == P_FOREGROUND) {
     int status = 0;
     pid_t pid;
-    while ((pid = waitpid(-job->pgid, &status, 0)) > 0) {
+    while ((pid = waitpid(-job->pgid, &status, WUNTRACED)) > 0) {
       if (pid > 0) {
         shell->last_exit_status = WEXITSTATUS(status);
       }
@@ -798,8 +798,16 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
  *
  */
 int parse_and_execute(char **cmd_buf, t_shell *shell,
-                      t_token_stream *token_stream) {
+                      t_token_stream *token_stream, bool script) {
 
+    int s_fd = -1;
+    if(script){
+      s_fd = dup(STDERR_FILENO);
+      int n_fd = open("/dev/null", O_WRONLY);
+      dup2(n_fd, STDERR_FILENO);
+      close(n_fd);
+    }
+  
   t_alias_hashtable *aliases = &(shell->aliases);
   if (lex_command_line(cmd_buf, token_stream, aliases, 0) == -1) {
     return -1;
@@ -827,7 +835,7 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   }
 
   if (exec_flag) {
-    exec_list(*cmd_buf, root, shell, 0, NULL, false);
+    exec_list(*cmd_buf, root, shell, 0, NULL, script);
   }
 
   sigprocmask(SIG_SETMASK, &old_mask, NULL);
@@ -835,6 +843,11 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   cleanup_ast(root);
   restore_io(shell);
   shell->ast.root = NULL;
+
+  if(script){
+    dup2(s_fd, STDERR_FILENO);
+    close(s_fd);
+  }
 
   return 0;
 }

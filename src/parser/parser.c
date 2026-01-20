@@ -105,7 +105,10 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
       }
     }
 
-    if (filename_prober == 1 && token_stream->tokens[i].type == TOKEN_SIMPLE) {
+    if (filename_prober && token_stream->tokens[i].type == TOKEN_NEWLINE)
+      continue;
+
+    if (filename_prober && token_stream->tokens[i].type == TOKEN_SIMPLE) {
 
       char buf[FILE_NAME_MAX];
 
@@ -206,24 +209,28 @@ static t_ast_n *parse_command(t_ast *ast, t_token_stream *ts, int start,
   return node;
 }
 
-static int next_terminator_index(t_token_stream* ts, int start, int end) {
-    int par_depth = 0;
-    int flow_depth = 0;
+static int next_terminator_index(t_token_stream *ts, int start, int end) {
+  int par_depth = 0;
+  int flow_depth = 0;
 
-    for(int i = start; i <= end; i++) {
-        t_token_type type = ts->tokens[i].type;
-        if(type == TOKEN_OPEN_PAR) par_depth++;
-        if(type == TOKEN_CLOSE_PAR) par_depth--;
-        
-        if(type == TOKEN_IF || type == TOKEN_WHILE) flow_depth++;
-        if(type == TOKEN_FI || type == TOKEN_DONE) flow_depth--;
+  for (int i = start; i <= end; i++) {
+    t_token_type type = ts->tokens[i].type;
+    if (type == TOKEN_OPEN_PAR)
+      par_depth++;
+    if (type == TOKEN_CLOSE_PAR)
+      par_depth--;
 
-        if(par_depth == 0 && flow_depth == 0 && 
-          (type == TOKEN_SEQ || type == TOKEN_BG)) {
-            return i;
-        }
+    if (type == TOKEN_IF || type == TOKEN_WHILE)
+      flow_depth++;
+    if (type == TOKEN_FI || type == TOKEN_DONE)
+      flow_depth--;
+
+    if (par_depth == 0 && flow_depth == 0 &&
+        (type == TOKEN_SEQ || type == TOKEN_BG || type == TOKEN_NEWLINE)) {
+      return i;
     }
-    return -1;
+  }
+  return -1;
 }
 /**
  * @brief parsers terminators in command line buf
@@ -247,6 +254,17 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
 
     int cmd_start = i;
     int cmd_end = (term == -1) ? end : term - 1;
+
+    while (cmd_end >= cmd_start &&
+           (ts->tokens[cmd_end].type == TOKEN_SEQ ||
+            ts->tokens[cmd_end].type == TOKEN_NEWLINE)) {
+      cmd_end--;
+    }
+
+    if (cmd_start > cmd_end) {
+      i = term + 1;
+      continue;
+    }
 
     t_ast_n *cmd = parse_conditionals(ast, ts, cmd_start, cmd_end);
     if (!cmd) {
@@ -300,8 +318,6 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
 static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
                                    int end) {
 
-  int par_depth = 0;
-
   if (start > end)
     return NULL;
 
@@ -309,20 +325,30 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
 
   int last_conditional_index = -1;
   int cond_flag = -1;
+  int par_depth = 0;
+  int flow_depth = 0;
+
   for (int i = start; i <= end; i++) {
+    t_token_type type = ts->tokens[i].type;
 
-    if (ts->tokens[i].type == TOKEN_OPEN_PAR) {
+    if (type == TOKEN_OPEN_PAR)
       par_depth++;
-    } else if (ts->tokens[i].type == TOKEN_CLOSE_PAR) {
+    else if (type == TOKEN_CLOSE_PAR)
       par_depth--;
-    }
 
-    if (par_depth == 0 && ts->tokens[i].type == TOKEN_AND) {
-      last_conditional_index = i;
-      cond_flag = OP_AND;
-    } else if (par_depth == 0 && ts->tokens[i].type == TOKEN_OR) {
-      last_conditional_index = i;
-      cond_flag = OP_OR;
+    if (type == TOKEN_IF || type == TOKEN_WHILE)
+      flow_depth++;
+    else if (type == TOKEN_FI || type == TOKEN_DONE)
+      flow_depth--;
+
+    if (par_depth == 0 && flow_depth == 0) {
+      if (type == TOKEN_AND) {
+        last_conditional_index = i;
+        cond_flag = OP_AND;
+      } else if (type == TOKEN_OR) {
+        last_conditional_index = i;
+        cond_flag = OP_OR;
+      }
     }
   }
 
@@ -388,23 +414,29 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
 static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
                                int end) {
 
-  int par_depth = 0;
-
   if (start > end)
     return NULL;
 
   t_ast_n *node = NULL;
 
   int last_pipe_index = -1;
+  int par_depth = 0;
+  int flow_depth = 0;
+
   for (int i = start; i <= end; i++) {
+    t_token_type type = ts->tokens[i].type;
 
-    if (ts->tokens[i].type == TOKEN_OPEN_PAR) {
+    if (type == TOKEN_OPEN_PAR)
       par_depth++;
-    } else if (ts->tokens[i].type == TOKEN_CLOSE_PAR) {
+    else if (type == TOKEN_CLOSE_PAR)
       par_depth--;
-    }
 
-    if (par_depth == 0 && ts->tokens[i].type == TOKEN_PIPE) {
+    if (type == TOKEN_IF || type == TOKEN_WHILE)
+      flow_depth++;
+    else if (type == TOKEN_FI || type == TOKEN_DONE)
+      flow_depth--;
+
+    if (par_depth == 0 && flow_depth == 0 && type == TOKEN_PIPE) {
       last_pipe_index = i;
     }
   }
@@ -472,10 +504,10 @@ static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end) {
   }
 
   if (then_idx == -1 || fi_idx == -1) {
-    if(fi_idx == -1)
-        fprintf(stderr, "msh: syntax error: expected token\n");
-    else if(then_idx == -1)
-        fprintf(stderr, "msh: syntax error: expected more\n");
+    if (fi_idx == -1)
+      fprintf(stderr, "msh: syntax error: expected token\n");
+    else if (then_idx == -1)
+      fprintf(stderr, "msh: syntax error: expected more\n");
     return NULL;
   }
 
@@ -503,39 +535,45 @@ static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end) {
   return node;
 }
 
-static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end) {
-    int do_idx = -1;
-    int done_idx = -1;
-    int depth = 0;
+static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
+                            int end) {
+  int do_idx = -1;
+  int done_idx = -1;
+  int depth = 0;
 
-    for (int i = start; i <= end; i++) {
-        t_token_type type = ts->tokens[i].type;
-        if (type == TOKEN_WHILE) depth++;
-        if (depth == 1) {
-            if (type == TOKEN_DO) do_idx = i;
-            if (type == TOKEN_DONE) done_idx = i;
-        }
-        if (type == TOKEN_DONE) depth--;
+  for (int i = start; i <= end; i++) {
+    t_token_type type = ts->tokens[i].type;
+    if (type == TOKEN_WHILE)
+      depth++;
+    if (depth == 1) {
+      if (type == TOKEN_DO)
+        do_idx = i;
+      if (type == TOKEN_DONE)
+        done_idx = i;
     }
-    if (do_idx == -1 || done_idx == -1) {
-        fprintf(stderr, "msh: syntax error: expected 'do' or 'done'\n");
-        return NULL;
-    }
+    if (type == TOKEN_DONE)
+      depth--;
+  }
+  if (do_idx == -1 || done_idx == -1) {
+    fprintf(stderr, "msh: syntax error: expected 'do' or 'done'\n");
+    return NULL;
+  }
 
-    t_ast_n *node = (t_ast_n *)malloc(sizeof(t_ast_n));
-    if (!node) return NULL;
-    init_ast_node(node);
-    node->op_type = OP_WHILE;
+  t_ast_n *node = (t_ast_n *)malloc(sizeof(t_ast_n));
+  if (!node)
+    return NULL;
+  init_ast_node(node);
+  node->op_type = OP_WHILE;
 
-    node->left = parse_terminators(ast, ts, start + 1, do_idx - 1);
-    node->right = parse_terminators(ast, ts, do_idx + 1, done_idx - 1);
+  node->left = parse_terminators(ast, ts, start + 1, do_idx - 1);
+  node->right = parse_terminators(ast, ts, do_idx + 1, done_idx - 1);
 
-    if (scan_redirections(node, ts, done_idx + 1, end) == -1) {
-        cleanup_ast_node(node);
-        return NULL;
-    }
+  if (scan_redirections(node, ts, done_idx + 1, end) == -1) {
+    cleanup_ast_node(node);
+    return NULL;
+  }
 
-    return node;
+  return node;
 }
 
 static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
@@ -548,7 +586,7 @@ static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
 
   if (type == TOKEN_IF) {
     return parse_if(ast, ts, start, end);
-  } else if(type == TOKEN_WHILE){
+  } else if (type == TOKEN_WHILE) {
     return parse_while(ast, ts, start, end);
   }
 

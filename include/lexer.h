@@ -31,7 +31,8 @@ typedef enum e_token_type {
   TOKEN_WHILE,
   TOKEN_FOR,
   TOKEN_DO,
-  TOKEN_DONE
+  TOKEN_DONE,
+  TOKEN_NEWLINE
 } t_token_type;
 
 typedef struct s_token {

@@ -2,7 +2,7 @@
 
 int init_token_stream(t_token_stream *token_stream) {
 
-  token_stream->tokens = malloc(INITIAL_TOKS_ARR_CAP * sizeof(t_token));
+  token_stream->tokens = (t_token*)malloc(INITIAL_TOKS_ARR_CAP * sizeof(t_token));
   if (token_stream->tokens == NULL) {
     perror("fatal malloc init tokens arr");
     return -1;
@@ -67,6 +67,10 @@ t_token_type get_token_type(const char *c, size_t *len) {
   if (c[0] == ';') {
     *len = 1;
     return TOKEN_SEQ;
+  }
+  if(c[0] == '\n'){
+    *len = 1;
+    return TOKEN_NEWLINE;
   }
 
   return TOKEN_SIMPLE;
@@ -244,7 +248,7 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
       char seq[3] = {cmd_buf[i], cmd_buf[i + 1], '\0'};
       t_token_type type = get_token_type(seq, &op_len);
 
-      if (cmd_buf[i] == ' ') {
+      if (cmd_buf[i] == ' ' || cmd_buf[i] == '\t') {
         flush_word(token_stream, &tok_start, &word_len, &tokenized,
                    &token_count, in_single_quote || in_double_quote);
         i++;
