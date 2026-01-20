@@ -24,6 +24,14 @@ typedef enum e_token_type {
   TOKEN_AND,
   TOKEN_BG,
   TOKEN_SEQ,
+  TOKEN_IF,
+  TOKEN_THEN,
+  TOKEN_ELSE,
+  TOKEN_FI,
+  TOKEN_WHILE,
+  TOKEN_FOR,
+  TOKEN_DO,
+  TOKEN_DONE
 } t_token_type;
 
 typedef struct s_token {

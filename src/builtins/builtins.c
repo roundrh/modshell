@@ -247,7 +247,7 @@ static int wait_for_foreground_job(t_job* job, t_shell* shell) {
 
         if(is_job_completed(job) == 1){
 
-            del_job(shell, job->job_id);
+            del_job(shell, job->job_id, false);
             return 0;
         }
     }
@@ -544,6 +544,28 @@ int stty_builtin(t_ast_n* node, t_shell* shell, char** argv){
     return 0;
 }
 
+int cond_builtin(t_ast_n* node, t_shell* shell, char** argv){
+
+    if(strcmp(argv[4], "]") != 0){
+        fprintf(stderr, "\nmsh: expected closing bracket");
+        return -1;
+    }
+
+    if (strcmp(argv[2], "-lt") == 0) {
+        return (atoi(argv[1]) < atoi(argv[3])) ? 0 : 1;
+    } else if (strcmp(argv[2], "-gt") == 0) {
+        return (atoi(argv[1]) > atoi(argv[3])) ? 0 : 1;
+    } else if(strcmp(argv[2], "-eq") == 0 ){
+        return (atoi(argv[1]) == atoi(argv[3])) ? 0 : 1;
+    } else if(strcmp(argv[2], "-lte") == 0 ){
+        return (atoi(argv[1]) <= atoi(argv[3])) ? 0 : 1;
+    } else if(strcmp(argv[2], "-gte") == 0 ){
+        return (atoi(argv[1]) >= atoi(argv[3])) ? 0 : 1;
+    }
+
+    return -1;
+}
+
 static void print_signals_list(void) {
     printf(" 1. SIGHUP       2. SIGINT       3. SIGQUIT      4. SIGILL\n");
     printf(" 5. SIGTRAP      6. SIGABRT      7. SIGBUS       8. SIGFPE\n");
@@ -608,7 +630,7 @@ int kill_builtin(t_ast_n* node, t_shell* shell, char** argv) {
     if (signum == SIGKILL || signum == SIGTERM || signum == SIGHUP || signum == SIGINT) {
         printf("[%d] Killed - %d\n", job_id, target);
         while(waitpid(-target, NULL, WNOHANG) > 0);
-        if(job) del_job(shell, job->job_id);
+        if(job) del_job(shell, job->job_id, false);
         job = NULL;
     } 
     else if (signum == SIGSTOP || signum == SIGTSTP || signum == SIGTTIN || signum == SIGTTOU) {

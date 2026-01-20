@@ -68,7 +68,7 @@ static int reap_sigchld_jobs(t_shell* shell) {
             if (job->position == P_BACKGROUND) {
                 print_job_info(job);
             }
-            del_job(shell, job->job_id);
+            del_job(shell, job->job_id, false);
         }
     }
 

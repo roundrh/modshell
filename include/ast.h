@@ -40,7 +40,10 @@ typedef enum e_op_types {
     OP_SEQ,         ///< Terminator sequential command (;) 3
     OP_AND,         ///< Conditional and command (&&) 5
     OP_OR,          ///< Conditional or command (||) 6
-    OP_SUBSHELL
+    OP_SUBSHELL,
+    OP_IF,
+    OP_WHILE,
+    OP_FOR
 } t_op_type;
 
 /**

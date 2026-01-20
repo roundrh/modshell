@@ -51,7 +51,7 @@ int add_job(t_shell* shell, t_job* job){
     return 0;
 }
 
-int del_job(t_shell* shell, int job_id){
+int del_job(t_shell* shell, int job_id, bool flow){
 
     if (!shell || job_id <= 0) 
         return -1;
@@ -79,6 +79,9 @@ int del_job(t_shell* shell, int job_id){
     free(shell->job_table[i]);
     shell->job_table[i] = NULL;
     
+    if(flow)
+        shell->job_count--;
+
     return 0;
 }
 

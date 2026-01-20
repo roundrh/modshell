@@ -34,6 +34,8 @@ typedef struct shell_s{
 
     t_token_stream token_stream;
 
+    t_job* fg_job;
+
     int tty_fd;
     pid_t pgid;
 

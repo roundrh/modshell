@@ -12,7 +12,7 @@
 #define INITIAL_JOB_TABLE_LENGTH 32
 
 int add_job(t_shell* shell, t_job* job);
-int del_job(t_shell* shell, int job_id);
+int del_job(t_shell* shell, int job_id, bool flow);
 
 int add_process_to_job(t_job *job, t_process* process);
 

@@ -99,19 +99,20 @@ static int push_built_ins(t_shell *shell) {
 
   if (insert_builtin(&(shell->builtins), "history", history_builtin, 1) ==
       NULL) {
-    perror("FATAL: Failed to insert 'history' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "help", help_builtin, 1) == NULL) {
-    perror("FATAL: Failed to insert 'help' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "set", set_builtin, 1) == NULL) {
-    perror("FATAL: Failed to insert 'help' builtin");
+    flush_builtin_ht(&(shell->builtins));
+    return -1;
+  }
+  if (insert_builtin(&(shell->builtins), "[", cond_builtin, 1) == NULL) {
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
@@ -191,7 +192,7 @@ int init_shell_state(t_shell *shell) {
     perror("shell sigtable init");
     shell->job_control_flag = 0;
   }
-
+  shell->fg_job = NULL;
   shell->last_exit_status = 0;
 
   shell->is_interactive = isatty(STDIN_FILENO);

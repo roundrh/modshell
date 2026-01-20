@@ -6,6 +6,8 @@
 #include<stdio.h>
 
 extern volatile sig_atomic_t sigchld_flag;
+extern volatile sig_atomic_t sigint_flag;
+extern volatile sig_atomic_t sigtstp_flag;
 
 
 /**
@@ -51,6 +53,8 @@ int init_pa_sigtable(t_shell_sigtable* sigtable);
 
 int init_ch_sigtable(t_shell_sigtable* sigtable);
 
-void sigchld_handler(int sigchld);
+void sigchld_handler(int sig);
+void sigint_handler(int sig);
+void sigtstp_handler(int sig);
 
 #endif // ! SIGTABLE_INIT_H

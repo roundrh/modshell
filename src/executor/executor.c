@@ -11,17 +11,17 @@ void set_global_shell_ptr_chld(t_shell *ptr) { g_shell_ptr = ptr; }
 void cleanup_global_cmd_buf_ptr(void); ///< defined in shell_driver.c
 
 static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job,
-                       int subshell); ///< Forward declaration of function
+                       int subshell, bool flow); ///< Forward declaration of function
 static pid_t
 exec_command(t_ast_n *node, t_shell *shell, t_job *job, int is_pipeline_child,
              int subshell,
-             t_ast_n *pipeline); ///< Forward declaration of function
+             t_ast_n *pipeline, bool flow); ///< Forward declaration of function
 static pid_t
 exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
                     int is_pipeline_child, int subshell,
-                    t_ast_n *pipeline); ///< Forward declaration of function
+                    t_ast_n *pipeline, bool flow); ///< Forward declaration of function
 static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
-                     t_job *subshell_job);
+                     t_job *subshell_job, bool flow);
 static inline int handle_tcsetpgrp(t_shell *shell, pid_t pgid);
 
 static void cleanup_argv(char **argv) {
@@ -68,6 +68,8 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       if (errno == ECHILD) {
         break;
       } else if (errno == EINTR) {
+        if(sigint_flag) 
+          break;
         continue; ///< Ignore whatever signal stopped it.
       } else {
         perror("waitpid");
@@ -264,7 +266,7 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
  */
 static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
                                  int is_pipeline_child, int is_subshell,
-                                 t_ast_n *pipeline) {
+                                 t_ast_n *pipeline, bool flow) {
 
   if (!node)
     return -1;
@@ -307,7 +309,7 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
 static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job,
                            int is_pipeline_child, t_ast_n *pipeline,
-                           int subshell) {
+                           int subshell, bool flow) {
 
   pid_t pid = fork();
   if (pid < 0) {
@@ -333,7 +335,7 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job,
     init_ch_sigtable(&(shell->shell_sigtable));
     set_global_shell_ptr_chld(shell);
 
-    int exit_status = exec_list(NULL, node->sub_ast_root, shell, 1, job);
+    int exit_status = exec_list(NULL, node->sub_ast_root, shell, 1, job, flow);
 
     int status = 0;
     while (waitpid(-job->pgid, &status, 0) > 0)
@@ -368,7 +370,7 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job,
  */
 static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
                           int is_pipeline_child, int subshell,
-                          t_ast_n *pipeline) {
+                          t_ast_n *pipeline, bool flow) {
 
   if (!node)
     return -1;
@@ -385,13 +387,13 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
 
   pid_t pid = -1;
   if (node->op_type == OP_PIPE) {
-    pid = exec_pipe(node, shell, job, subshell);
+    pid = exec_pipe(node, shell, job, subshell, flow);
   } else if (node->op_type == OP_SIMPLE) {
     pid = exec_simple_command(node, shell, job, is_pipeline_child, subshell,
-                              pipeline);
+                              pipeline, flow);
   } else if (node->op_type == OP_SUBSHELL) {
     pid =
-        exec_subshell(node, shell, job, is_pipeline_child, pipeline, subshell);
+        exec_subshell(node, shell, job, is_pipeline_child, pipeline, subshell, flow);
   }
 
   if (restore_io_flag)
@@ -459,7 +461,7 @@ static t_ast_n *flatten_ast(t_ast_n *node) {
  * shell->last_exit_status for the forked child to _exit with
  */
 static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job,
-                       int subshell) {
+                       int subshell, bool flow) {
 
   pid_t last_pid = -1;
 
@@ -539,7 +541,7 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job,
         init_ch_sigtable(&shell->shell_sigtable);
         set_global_shell_ptr_chld(shell);
 
-        exec_command(exec, shell, job, 1, subshell, pipeline);
+        exec_command(exec, shell, job, 1, subshell, pipeline, flow);
 
         _exit(shell->last_exit_status);
       } else if (i == count_cmd - 1) {
@@ -562,7 +564,7 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job,
         init_ch_sigtable(&shell->shell_sigtable);
         set_global_shell_ptr_chld(shell);
 
-        exec_command(exec, shell, job, 1, subshell, pipeline);
+        exec_command(exec, shell, job, 1, subshell, pipeline, flow);
 
         _exit(shell->last_exit_status);
       } else {
@@ -586,7 +588,7 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job,
         init_ch_sigtable(&shell->shell_sigtable);
         set_global_shell_ptr_chld(shell);
 
-        exec_command(exec, shell, job, 1, subshell, pipeline);
+        exec_command(exec, shell, job, 1, subshell, pipeline, flow);
 
         _exit(shell->last_exit_status);
       }
@@ -647,7 +649,7 @@ static inline int handle_tcsetpgrp(t_shell *shell, pid_t pgid) {
 }
 
 static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
-                    t_job *subshell_job) {
+                    t_job *subshell_job, bool flow) {
 
   t_job *job = NULL;
   if (!subshell)
@@ -659,7 +661,7 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     return -1;
   }
 
-  pid_t is_builtin = exec_command(node, shell, job, 0, subshell, NULL);
+  pid_t is_builtin = exec_command(node, shell, job, 0, subshell, NULL, flow);
 
   if (shell->job_control_flag && job->position == P_FOREGROUND) {
 
@@ -668,7 +670,9 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       exit_builtin(node, shell, NULL);
     }
 
+    shell->fg_job = job;
     t_wait_status job_status = wait_for_foreground_job(job, shell);
+    shell->fg_job = NULL;
 
     if (handle_tcsetpgrp(shell, shell->pgid) == -1) {
       perror("720: tcsetpgrp reclaim");
@@ -676,7 +680,7 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     }
 
     if (job_status == WAIT_FINISHED) {
-      del_job(shell, job->job_id);
+      del_job(shell, job->job_id, flow);
       if (is_builtin == 0) {
         if (shell->job_count > 0)
           shell->job_count--;
@@ -709,32 +713,80 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 }
 
 static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
-                     t_job *subshell_job) {
-
+                     t_job *subshell_job, bool flow) {
   if (!node)
     return 0;
 
   switch (node->op_type) {
-
   case OP_SEQ:
-    exec_list(cmd_buf, node->left, shell, subshell, subshell_job);
-    exec_list(cmd_buf, node->right, shell, subshell, subshell_job);
-    return shell->last_exit_status;
+    exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
+    return exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
   case OP_AND:
-    exec_list(cmd_buf, node->left, shell, subshell, subshell_job);
+    exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     if (shell->last_exit_status == 0)
-      exec_list(cmd_buf, node->right, shell, subshell, subshell_job);
+      exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
     return shell->last_exit_status;
   case OP_OR:
-    exec_list(cmd_buf, node->left, shell, subshell, subshell_job);
+    exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     if (shell->last_exit_status != 0)
-      exec_list(cmd_buf, node->right, shell, subshell, subshell_job);
+      exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
     return shell->last_exit_status;
-  default:
-    return exec_job(cmd_buf, node, shell, subshell, subshell_job);
-  }
+  case OP_IF:
+    exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
+    if (shell->last_exit_status == 0) {
+      return exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
+    } else if (node->sub_ast_root) {
+      return exec_list(cmd_buf, node->sub_ast_root, shell, subshell,
+                       subshell_job, flow);
+    }
+    return 0;
+  case OP_WHILE: {
+    struct sigaction sa_int, sa_tstp, old_int, old_tstp;
 
-  return 0;
+    sa_int.sa_handler = sigint_handler;
+    sigemptyset(&sa_int.sa_mask);
+    sa_int.sa_flags = SA_RESTART;
+
+    sa_tstp.sa_handler = sigtstp_handler;
+    sigemptyset(&sa_tstp.sa_mask);
+    sa_tstp.sa_flags = SA_RESTART;
+
+    sigaction(SIGINT, &sa_int, &old_int);
+    sigaction(SIGTSTP, &sa_tstp, &old_tstp);
+
+    while (1) {
+      if (sigint_flag)
+        break;
+      if(sigtstp_flag)
+        break;
+
+      exec_list(cmd_buf, node->left, shell, subshell, subshell_job, true);
+      if (shell->last_exit_status != 0 || sigint_flag)
+        break;
+
+      exec_list(cmd_buf, node->right, shell, subshell, subshell_job, true);
+      if(sigint_flag || shell->last_exit_status != 0)
+        break;
+    }
+
+    sigaction(SIGINT, &old_int, NULL);
+    sigaction(SIGTSTP, &old_tstp, NULL);
+    if(sigtstp_flag){
+      shell->last_exit_status = SIGTSTP + 127;
+      print_job_info(shell->fg_job);
+      sigint_flag = 0;
+      sigtstp_flag = 0;
+    }
+    if (sigint_flag) {
+      shell->last_exit_status = 130;
+      sigint_flag = 0;
+      sigtstp_flag = 0;
+    }
+    return shell->last_exit_status;
+  }
+  default:
+    return exec_job(cmd_buf, node, shell, subshell, subshell_job, flow);
+  }
 }
 /**
  * @brief called by driver to build ast and execute the ast via recursive
@@ -755,7 +807,6 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   t_ast_n *root;
   if ((root = build_ast(&(shell->ast), token_stream)) == NULL) {
-    perror("fatal building ast");
     return -1;
   }
 
@@ -776,7 +827,7 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   }
 
   if (exec_flag) {
-    exec_list(*cmd_buf, root, shell, 0, NULL);
+    exec_list(*cmd_buf, root, shell, 0, NULL, false);
   }
 
   sigprocmask(SIG_SETMASK, &old_mask, NULL);

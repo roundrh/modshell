@@ -6,11 +6,20 @@
  */
 
 volatile sig_atomic_t sigchld_flag = 0;
+volatile sig_atomic_t sigint_flag = 0;
+volatile sig_atomic_t sigtstp_flag = 0;
 
-void sigchld_handler(int sig){
-    
+void sigchld_handler(int sig){ 
     (void)sig;
     sigchld_flag = 1;
+}
+void sigint_handler(int sig){
+    (void)sig;
+    sigint_flag = 1;
+}
+void sigtstp_handler(int sig){
+    (void)sig;
+    sigtstp_flag = 1;
 }
 
 int init_pa_sigtable(t_shell_sigtable* sigtable){
