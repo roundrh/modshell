@@ -544,6 +544,13 @@ int stty_builtin(t_ast_n* node, t_shell* shell, char** argv){
     return 0;
 }
 
+int true_builtin(t_ast_n* node, t_shell* shell, char** argv){
+    return 0;
+}
+int false_builtin(t_ast_n* node, t_shell* shell, char** argv){
+    return -1;
+}
+
 int cond_builtin(t_ast_n* node, t_shell* shell, char** argv){
 
     if(strcmp(argv[4], "]") != 0){

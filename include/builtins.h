@@ -47,5 +47,7 @@ int stty_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int kill_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int set_builtin(t_ast_n* node, t_shell* shell, char** argv);
 int cond_builtin(t_ast_n* node, t_shell* shell, char** argv);
+int true_builtin(t_ast_n* node, t_shell* shell, char** argv);
+int false_builtin(t_ast_n* node, t_shell* shell, char** argv);
 
 #endif // BUILTINS_H

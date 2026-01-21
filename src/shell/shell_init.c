@@ -116,6 +116,14 @@ static int push_built_ins(t_shell *shell) {
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
+  if (insert_builtin(&(shell->builtins), "true", true_builtin, 1) == NULL) {
+    flush_builtin_ht(&(shell->builtins));
+    return -1;
+  }
+  if (insert_builtin(&(shell->builtins), "false", false_builtin, 1) == NULL) {
+    flush_builtin_ht(&(shell->builtins));
+    return -1;
+  }
 
   return 0;
 }

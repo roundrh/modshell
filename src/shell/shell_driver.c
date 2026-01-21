@@ -11,83 +11,88 @@
 static t_shell *g_shell_ptr = NULL;
 static char *g_cmd_buf_ptr = NULL;
 
-static int reap_sigchld_jobs(t_shell *shell) {
+static int reap_sigchld_jobs(t_shell* shell){
 
-  sigset_t block_mask, old_mask;
-  int reap_flag = 1;
-  if (sigemptyset(&block_mask) == -1) {
-    perror("sigemptyset");
-    reap_flag = 0;
-  }
-  if (sigaddset(&block_mask, SIGCHLD) == -1) {
-    perror("sigaddset");
-    reap_flag = 0;
-  }
-
-  if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1) {
-    perror("sigproc");
-    reap_flag = 0;
-  }
-
-  if (reap_flag == 0) {
-    perror("reap flag");
-    return -1;
-  }
-
-  int status;
-  pid_t pid;
-
-  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
-
-    t_job *job = find_job_by_pid(shell, pid);
-    if (!job)
-      continue;
-
-    t_process *process = find_process_in_job(job, pid);
-    if (!process)
-      continue;
-
-    if (WIFEXITED(status) || WIFSIGNALED(status)) {
-      process->completed = 1;
-      process->running = 0;
-      process->stopped = 0;
-    } else if (WIFSTOPPED(status)) {
-      process->stopped = 1;
-      process->running = 0;
-      process->completed = 0;
-      job->state = S_STOPPED;
-      job->position = P_BACKGROUND;
-    } else if (WIFCONTINUED(status)) {
-      process->stopped = 0;
-      process->running = 1;
-      process->completed = 0;
-      job->state = S_RUNNING;
+    sigset_t block_mask, old_mask;
+    int reap_flag = 1;
+    if(sigemptyset(&block_mask) == -1){
+        perror("sigemptyset");
+        reap_flag = 0;
     }
-    if (is_job_stopped(job)) {
-      print_job_info(job);
-      job->state = S_STOPPED;
-      job->position = P_BACKGROUND;
-    } else if (is_job_completed(job)) {
-      job->state = S_COMPLETED;
-      if (job->position == P_BACKGROUND) {
-        print_job_info(job);
-      }
-      del_job(shell, job->job_id, false);
+    if(sigaddset(&block_mask, SIGCHLD) == -1){
+        perror("sigaddset");
+        reap_flag = 0;  
     }
-  }
 
-  if (sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1) {
-    perror("sigproc");
-  }
-
-  if (is_job_table_empty(shell)) {
-    if (reset_job_table_cap(shell) == -1) {
-      exit(EXIT_FAILURE);
+    if(sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1){
+        perror("sigproc");
+        reap_flag = 0;
     }
-    shell->job_count = 0;
-  }
 
-  return 0;
+    size_t i = 0;
+    t_job* job = NULL;
+
+    if(!reap_flag){
+        return -1;
+    }
+
+    while (i < shell->job_table_cap) {
+        job = shell->job_table[i];
+        if (!job) {
+            i++;
+            continue;
+        }
+
+        int status;
+        pid_t pid;
+
+        while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
+
+            t_process* process = find_process_in_job(job, pid);
+            if (!process) 
+                break;
+
+            if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                process->completed = 1;
+                process->stopped = 0;
+                process->running = 0;
+            } else if (WIFSTOPPED(status)) {
+                process->stopped = 1;
+                process->completed = 0;
+                process->running = 0;
+            } else if (WIFCONTINUED(status)) {
+                process->running = 1;
+                process->stopped = 0;
+                process->completed = 0;
+            }
+        }
+
+        if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
+            job->state = S_COMPLETED;
+            print_job_info(job);
+            del_job(shell, job->job_id, false);
+        } else if (job && is_job_stopped(job)) {
+            job->state = S_STOPPED;
+            print_job_info(job);
+            job->position = P_BACKGROUND;
+        } else if(job && job->position == P_BACKGROUND){
+            job->state = S_RUNNING;
+        }
+
+        i++;
+    }
+
+    if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){
+        perror("sigproc");
+    }
+    
+    if(is_job_table_empty(shell)){
+        if(reset_job_table_cap(shell) == -1){
+            exit(EXIT_FAILURE);
+        }
+        shell->job_count = 0;
+    }
+    return 0;
 }
 
 void set_global_shell_ptr(t_shell *ptr) { g_shell_ptr = ptr; }
