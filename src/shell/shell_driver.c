@@ -1,8 +1,8 @@
 #include "executor.h"
+#include "parser.h"
 #include "shell_cleanup.h"
 #include "shell_init.h"
 #include "userinp.h"
-#include"parser.h"
 #include <asm-generic/errno-base.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,88 +11,88 @@
 static t_shell *g_shell_ptr = NULL;
 static char *g_cmd_buf_ptr = NULL;
 
-static int reap_sigchld_jobs(t_shell* shell){
+static int reap_sigchld_jobs(t_shell *shell) {
 
-    sigset_t block_mask, old_mask;
-    int reap_flag = 1;
-    if(sigemptyset(&block_mask) == -1){
-        perror("sigemptyset");
-        reap_flag = 0;
-    }
-    if(sigaddset(&block_mask, SIGCHLD) == -1){
-        perror("sigaddset");
-        reap_flag = 0;  
-    }
+  sigset_t block_mask, old_mask;
+  int reap_flag = 1;
+  if (sigemptyset(&block_mask) == -1) {
+    perror("sigemptyset");
+    reap_flag = 0;
+  }
+  if (sigaddset(&block_mask, SIGCHLD) == -1) {
+    perror("sigaddset");
+    reap_flag = 0;
+  }
 
-    if(sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1){
-        perror("sigproc");
-        reap_flag = 0;
-    }
+  if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1) {
+    perror("sigproc");
+    reap_flag = 0;
+  }
 
-    size_t i = 0;
-    t_job* job = NULL;
+  size_t i = 0;
+  t_job *job = NULL;
 
-    if(!reap_flag){
-        return -1;
-    }
+  if (!reap_flag) {
+    return -1;
+  }
 
-    while (i < shell->job_table_cap) {
-        job = shell->job_table[i];
-        if (!job) {
-            i++;
-            continue;
-        }
-
-        int status;
-        pid_t pid;
-
-        while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
-
-            t_process* process = find_process_in_job(job, pid);
-            if (!process) 
-                break;
-
-            if (WIFEXITED(status) || WIFSIGNALED(status)) {
-                process->completed = 1;
-                process->stopped = 0;
-                process->running = 0;
-            } else if (WIFSTOPPED(status)) {
-                process->stopped = 1;
-                process->completed = 0;
-                process->running = 0;
-            } else if (WIFCONTINUED(status)) {
-                process->running = 1;
-                process->stopped = 0;
-                process->completed = 0;
-            }
-        }
-
-        if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
-            job->state = S_COMPLETED;
-            print_job_info(job);
-            del_job(shell, job->job_id, false);
-        } else if (job && is_job_stopped(job)) {
-            job->state = S_STOPPED;
-            print_job_info(job);
-            job->position = P_BACKGROUND;
-        } else if(job && job->position == P_BACKGROUND){
-            job->state = S_RUNNING;
-        }
-
-        i++;
+  while (i < shell->job_table_cap) {
+    job = shell->job_table[i];
+    if (!job) {
+      i++;
+      continue;
     }
 
-    if(sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1){
-        perror("sigproc");
+    int status;
+    pid_t pid;
+
+    while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
+
+      t_process *process = find_process_in_job(job, pid);
+      if (!process)
+        break;
+
+      if (WIFEXITED(status) || WIFSIGNALED(status)) {
+        process->completed = 1;
+        process->stopped = 0;
+        process->running = 0;
+      } else if (WIFSTOPPED(status)) {
+        process->stopped = 1;
+        process->completed = 0;
+        process->running = 0;
+      } else if (WIFCONTINUED(status)) {
+        process->running = 1;
+        process->stopped = 0;
+        process->completed = 0;
+      }
     }
-    
-    if(is_job_table_empty(shell)){
-        if(reset_job_table_cap(shell) == -1){
-            exit(EXIT_FAILURE);
-        }
-        shell->job_count = 0;
+
+    if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
+      job->state = S_COMPLETED;
+      print_job_info(job);
+      del_job(shell, job->job_id, false);
+    } else if (job && is_job_stopped(job)) {
+      job->state = S_STOPPED;
+      print_job_info(job);
+      job->position = P_BACKGROUND;
+    } else if (job && job->position == P_BACKGROUND) {
+      job->state = S_RUNNING;
     }
-    return 0;
+
+    i++;
+  }
+
+  if (sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1) {
+    perror("sigproc");
+  }
+
+  if (is_job_table_empty(shell)) {
+    if (reset_job_table_cap(shell) == -1) {
+      exit(EXIT_FAILURE);
+    }
+    shell->job_count = 0;
+  }
+  return 0;
 }
 
 void set_global_shell_ptr(t_shell *ptr) { g_shell_ptr = ptr; }
@@ -202,20 +202,21 @@ int main(int argc, char **argv) {
     while (getline(&line, &cap, script) != -1) {
 
       char *p = line;
-      while (*p && isspace((unsigned char)*p)) p++;
+      while (*p && isspace((unsigned char)*p))
+        p++;
       if (*p == '#' || *p == '\0')
         continue;
 
       total_buf = append_script_line(total_buf, line);
 
-      //printf("debug: %s\n", total_buf);
+      // printf("debug: %s\n", total_buf);
 
-      if(parse_and_execute(&total_buf, &shell_state, &shell_state.token_stream, true) == 0){
+      if (parse_and_execute(&total_buf, &shell_state, &shell_state.token_stream,
+                            true) == 0) {
         free(total_buf);
         total_buf = NULL;
         shell_state.last_exit_status = 0;
       }
-
       for (int i = 0; i < shell_state.token_stream.tokens_arr_len; i++) {
         shell_state.token_stream.tokens[i].start = NULL;
         shell_state.token_stream.tokens[i].len = 0;
@@ -310,7 +311,8 @@ int main(int argc, char **argv) {
     if (shell_state.is_interactive)
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
 
-    parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream, false);
+    parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream,
+                      false);
     set_global_cmd_buf_ptr(cmd_line_buf);
 
     free(cmd_line_buf);

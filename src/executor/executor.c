@@ -703,7 +703,7 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     int status = 0;
 
     /* builtins set shell exit status - return pid 0 */
-    if(lpid != 0){
+    if (lpid != 0) {
       waitpid(lpid, &status, 0);
       shell->last_exit_status = WEXITSTATUS(status);
     }
@@ -749,11 +749,9 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
     sa_int.sa_handler = sigint_handler;
     sigemptyset(&sa_int.sa_mask);
-    sa_int.sa_flags = SA_RESTART;
 
     sa_tstp.sa_handler = sigtstp_handler;
     sigemptyset(&sa_tstp.sa_mask);
-    sa_tstp.sa_flags = SA_RESTART;
 
     sigaction(SIGINT, &sa_int, &old_int);
     sigaction(SIGTSTP, &sa_tstp, &old_tstp);
