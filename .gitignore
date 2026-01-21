@@ -20,3 +20,5 @@ core.*
 .cache/
 *.txt
 vgcore.*
+*.sh
+
