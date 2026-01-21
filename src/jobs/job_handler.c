@@ -32,7 +32,7 @@ int add_job(t_shell* shell, t_job* job){
 
     if(shell->job_count >= shell->job_table_cap){
         if(resize_job_table(&(shell->job_table), &shell->job_table_cap) == -1){
-            fprintf(stderr, "\n Job table full");
+            fprintf(stderr, "\nmsh: job table full");
             return -1;
         }
     }

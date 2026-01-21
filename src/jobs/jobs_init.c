@@ -13,6 +13,8 @@ int init_job_struct(t_job* job){
     job->processes = NULL;
     job->process_count = 0;
 
+    job->last_pid = -1;
+
     job->last_exit_status = -1;
 
     return 0;

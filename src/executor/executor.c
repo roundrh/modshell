@@ -90,6 +90,9 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       process->exit_status = WEXITSTATUS(status);
       job->last_exit_status = WEXITSTATUS(status);
 
+      if(pid == job->last_pid)
+        shell->last_exit_status = job->last_exit_status;
+
     } else if (WIFSTOPPED(status)) {
 
       process->stopped = 1;
@@ -99,7 +102,9 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       job->position = P_BACKGROUND;
 
       job->last_exit_status = WSTOPSIG(status);
-      shell->last_exit_status = job->last_exit_status;
+      if(pid == job->last_pid)
+        shell->last_exit_status = job->last_exit_status;
+
       return WAIT_STOPPED;
 
     } else if (WIFSIGNALED(status)) {
@@ -115,7 +120,6 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
     }
   }
 
-  shell->last_exit_status = job->last_exit_status;
   return WAIT_FINISHED;
 }
 
@@ -217,6 +221,7 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     t_process *process = make_process(pid);
     if (!process)
       return -1;
+    job->last_pid = pid;
     if (add_process_to_job(job, process) == -1) {
       perror("fail to add process to job");
       return -1;
@@ -252,6 +257,7 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
   } else {
     int status;
     waitpid(pid, &status, 0);
+    job->last_pid = pid;
     shell->last_exit_status = status;
   }
 
@@ -607,6 +613,8 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
         cleanup_job_struct(job);
         return -1;
       }
+      if(i == count_cmd - 1)
+        job->last_pid = pid;
 
       add_process_to_job(job, process);
     }
@@ -710,6 +718,11 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
     while (waitpid(-1, NULL, 0) > 0)
       ;
+
+    if(!subshell){
+      del_job(shell, job->job_id, true);
+      job = NULL;
+    }
   }
 
   return shell->last_exit_status;
@@ -802,13 +815,13 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 int parse_and_execute(char **cmd_buf, t_shell *shell,
                       t_token_stream *token_stream, bool script) {
 
-  int s_fd = -1;
-  if (script) {
+  // int s_fd = -1;
+  /*if (script) {
     s_fd = dup(STDERR_FILENO);
     int n_fd = open("/dev/null", O_WRONLY);
     dup2(n_fd, STDERR_FILENO);
     close(n_fd);
-  }
+  }*/
 
   t_alias_hashtable *aliases = &(shell->aliases);
   if (lex_command_line(cmd_buf, token_stream, aliases, 0) == -1) {
@@ -846,10 +859,10 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   restore_io(shell);
   shell->ast.root = NULL;
 
-  if (script) {
+  /*(if (script) {
     dup2(s_fd, STDERR_FILENO);
     close(s_fd);
-  }
+  }*/
 
   return 0;
 }

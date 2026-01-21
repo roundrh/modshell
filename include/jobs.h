@@ -43,6 +43,8 @@ typedef struct s_job{
 
     int process_count;
 
+    pid_t last_pid;
+
 } t_job;
 
 #endif
