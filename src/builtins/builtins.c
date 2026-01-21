@@ -408,7 +408,8 @@ int fg_builtin(t_ast_n* node, t_shell* shell, char** argv){
     job->position = P_FOREGROUND;
 
     if(tcsetpgrp(shell->tty_fd, job->pgid) == -1){
-        perror("terminal yield fail");
+        if(errno == ESRCH && job)
+            del_job(shell, job->job_id, false);
         return -1;
     }
 

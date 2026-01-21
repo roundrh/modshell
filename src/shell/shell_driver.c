@@ -201,6 +201,13 @@ int main(int argc, char **argv) {
 
     while (getline(&line, &cap, script) != -1) {
 
+      if(sigint_flag){
+        free(total_buf);
+        if(line)
+          free(line);
+        exit(SIGINT + 128);
+      }
+
       char *p = line;
       while (*p && isspace((unsigned char)*p))
         p++;

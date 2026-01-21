@@ -38,7 +38,8 @@
 typedef enum e_wait_status {
     WAIT_FINISHED = 0,
     WAIT_STOPPED = 1,
-    WAIT_ERROR = -1
+    WAIT_ERROR = -1,
+    WAIT_INTERRUPTED = -2
 }t_wait_status;
 
 

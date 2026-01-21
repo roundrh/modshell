@@ -1,12 +1,15 @@
 #!/home/rwrlrdrh/Desktop/Modshell_local/msh/msh
 
 set i=0
-while true; do
-  if (ps aux | grep 'firefox' | grep -v grep); then
-    pkill firefox
+while [ $i -lt 10 ]; do
+  if ([ $i -lt 6 ]); then
+    figlet $i
+    sleep 1
+    set i=$(($i + 1))
   else
-    sleep 5
-    echo "process not found... sleeping."
+    echo $i
+    sleep 1
+    set i=$(($i + 1))
   fi
 done
 

@@ -57,6 +57,8 @@ typedef struct shell_s{
     char* sh_name; //
 
     int std_fd_backup[2]; //
+    int intr;
+
 } t_shell;
 
 #endif // ! SHELL_H

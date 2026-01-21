@@ -194,6 +194,8 @@ static int push_def_aliases(t_alias_hashtable *ht) {
  */
 int init_shell_state(t_shell *shell) {
 
+  shell->intr = 0;
+
   shell->job_control_flag = 1;
 
   if (init_pa_sigtable(&(shell->shell_sigtable)) == -1) {
@@ -254,7 +256,7 @@ int init_shell_state(t_shell *shell) {
   shell->job_table_cap = INITIAL_JOB_TABLE_LENGTH;
   shell->job_count = 0;
 
-  shell->sh_name = (char *)malloc(sizeof(char) * INITIAL_SH_NAME_LENGTH);
+  shell->sh_name = (char *)malloc(sizeof(char) * 4);
   if (!shell->sh_name) {
     perror("shell init: sh name malloc fail");
     return -1;
