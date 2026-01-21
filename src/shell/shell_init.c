@@ -195,7 +195,7 @@ static int push_def_aliases(t_alias_hashtable *ht) {
 int init_shell_state(t_shell *shell) {
 
   shell->intr = 0;
-
+  shell->next_job_id = 1;
   shell->job_control_flag = 1;
 
   if (init_pa_sigtable(&(shell->shell_sigtable)) == -1) {

@@ -6,6 +6,91 @@
  * @brief implementation of functions used to execute AST.
  */
 
+int reap_sigchld_jobs(t_shell *shell) {
+
+  sigset_t block_mask, old_mask;
+  int reap_flag = 1;
+  if (sigemptyset(&block_mask) == -1) {
+    perror("sigemptyset");
+    reap_flag = 0;
+  }
+  if (sigaddset(&block_mask, SIGCHLD) == -1) {
+    perror("sigaddset");
+    reap_flag = 0;
+  }
+
+  if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1) {
+    perror("sigproc");
+    reap_flag = 0;
+  }
+
+  size_t i = 0;
+  t_job *job = NULL;
+
+  if (!reap_flag) {
+    return -1;
+  }
+
+  while (i < shell->job_table_cap) {
+    job = shell->job_table[i];
+    if (!job) {
+      i++;
+      continue;
+    }
+
+    int status;
+    pid_t pid;
+
+    while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
+
+      t_process *process = find_process_in_job(job, pid);
+      if (!process)
+        break;
+
+      if (WIFEXITED(status) || WIFSIGNALED(status)) {
+        process->completed = 1;
+        process->stopped = 0;
+        process->running = 0;
+      } else if (WIFSTOPPED(status)) {
+        process->stopped = 1;
+        process->completed = 0;
+        process->running = 0;
+      } else if (WIFCONTINUED(status)) {
+        process->running = 1;
+        process->stopped = 0;
+        process->completed = 0;
+      }
+    }
+
+    if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
+      job->state = S_COMPLETED;
+      print_job_info(job);
+      del_job(shell, job->job_id, false);
+    } else if (job && is_job_stopped(job)) {
+      job->state = S_STOPPED;
+      print_job_info(job);
+      job->position = P_BACKGROUND;
+    } else if (job && job->position == P_BACKGROUND) {
+      job->state = S_RUNNING;
+    }
+
+    i++;
+  }
+
+  if (sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1) {
+    perror("sigproc");
+  }
+
+  if (is_job_table_empty(shell)) {
+    if (reset_job_table_cap(shell) == -1) {
+      exit(EXIT_FAILURE);
+    }
+    shell->next_job_id = 1;
+    shell->job_count = 0;
+  }
+  return 0;
+}
+
 static t_shell *g_shell_ptr = NULL;
 void set_global_shell_ptr_chld(t_shell *ptr) { g_shell_ptr = ptr; }
 
@@ -697,8 +782,8 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     if (job_status == WAIT_FINISHED) {
       del_job(shell, job->job_id, flow);
       if (lpid == 0) {
-        if (shell->job_count > 0)
-          shell->job_count--;
+        if (shell->next_job_id > 1)
+          shell->next_job_id--;
       }
     } else if(job_status == WAIT_STOPPED){
       print_job_info(job);
@@ -792,6 +877,11 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
     while (1) {
 
+      /* force reap when some larp decides to spam the job table */
+      if(is_job_table_full(shell)){
+        reap_sigchld_jobs(shell);
+      }
+
       if(sigint_flag) 
         break;
 
@@ -809,6 +899,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       perror("sigaction restore");
       return -1;
     }
+
     return shell->last_exit_status;
   }
   default:

@@ -45,4 +45,6 @@ typedef enum e_wait_status {
 
 int parse_and_execute(char** cmd_buf, t_shell* shell, t_token_stream* token_stream, bool script);
 
+int reap_sigchld_jobs(t_shell *shell);
+
 #endif // ! EXECUTOR_H

@@ -1,5 +1,4 @@
 #include "executor.h"
-#include "parser.h"
 #include "shell_cleanup.h"
 #include "shell_init.h"
 #include "userinp.h"
@@ -10,90 +9,6 @@
 
 static t_shell *g_shell_ptr = NULL;
 static char *g_cmd_buf_ptr = NULL;
-
-static int reap_sigchld_jobs(t_shell *shell) {
-
-  sigset_t block_mask, old_mask;
-  int reap_flag = 1;
-  if (sigemptyset(&block_mask) == -1) {
-    perror("sigemptyset");
-    reap_flag = 0;
-  }
-  if (sigaddset(&block_mask, SIGCHLD) == -1) {
-    perror("sigaddset");
-    reap_flag = 0;
-  }
-
-  if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1) {
-    perror("sigproc");
-    reap_flag = 0;
-  }
-
-  size_t i = 0;
-  t_job *job = NULL;
-
-  if (!reap_flag) {
-    return -1;
-  }
-
-  while (i < shell->job_table_cap) {
-    job = shell->job_table[i];
-    if (!job) {
-      i++;
-      continue;
-    }
-
-    int status;
-    pid_t pid;
-
-    while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
-
-      t_process *process = find_process_in_job(job, pid);
-      if (!process)
-        break;
-
-      if (WIFEXITED(status) || WIFSIGNALED(status)) {
-        process->completed = 1;
-        process->stopped = 0;
-        process->running = 0;
-      } else if (WIFSTOPPED(status)) {
-        process->stopped = 1;
-        process->completed = 0;
-        process->running = 0;
-      } else if (WIFCONTINUED(status)) {
-        process->running = 1;
-        process->stopped = 0;
-        process->completed = 0;
-      }
-    }
-
-    if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
-      job->state = S_COMPLETED;
-      print_job_info(job);
-      del_job(shell, job->job_id, false);
-    } else if (job && is_job_stopped(job)) {
-      job->state = S_STOPPED;
-      print_job_info(job);
-      job->position = P_BACKGROUND;
-    } else if (job && job->position == P_BACKGROUND) {
-      job->state = S_RUNNING;
-    }
-
-    i++;
-  }
-
-  if (sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1) {
-    perror("sigproc");
-  }
-
-  if (is_job_table_empty(shell)) {
-    if (reset_job_table_cap(shell) == -1) {
-      exit(EXIT_FAILURE);
-    }
-    shell->job_count = 0;
-  }
-  return 0;
-}
 
 void set_global_shell_ptr(t_shell *ptr) { g_shell_ptr = ptr; }
 void set_global_cmd_buf_ptr(char *ptr) { g_cmd_buf_ptr = ptr; }
@@ -181,6 +96,9 @@ int main(int argc, char **argv) {
 
   if (argc > 1) {
 
+    /* treat signals as dfl */
+    init_ch_sigtable(&shell_state.shell_sigtable);
+
     shell_state.job_control_flag = 0;
 
     FILE *script = fopen(argv[1], "r");
@@ -200,13 +118,6 @@ int main(int argc, char **argv) {
     }
 
     while (getline(&line, &cap, script) != -1) {
-
-      if(sigint_flag){
-        free(total_buf);
-        if(line)
-          free(line);
-        exit(SIGINT + 128);
-      }
 
       char *p = line;
       while (*p && isspace((unsigned char)*p))

@@ -23,6 +23,8 @@ int mark_job_state(t_shell* shell, int job_id, t_state state);
 int move_job(t_shell* shell, int job_id, t_position pos);
 
 int is_job_table_empty(t_shell* shell);
+int is_job_table_full(t_shell* shell);
+
 int is_job_completed(t_job* job);
 int is_job_stopped(t_job* job);
 

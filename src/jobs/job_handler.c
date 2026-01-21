@@ -25,28 +25,25 @@ static int resize_job_table(t_job*** job_table, size_t *job_table_cap){
 }
 
 int add_job(t_shell* shell, t_job* job){
+    if (!shell || !job) return -1;
 
-    if (!shell || !job) {
-        return -1;
+    size_t i;
+    for(i = 0; i < shell->job_table_cap; i++){
+        if(shell->job_table[i] == NULL)
+            break;
     }
 
-    if(shell->job_count >= shell->job_table_cap){
+    if(i == shell->job_table_cap){
         if(resize_job_table(&(shell->job_table), &shell->job_table_cap) == -1){
             fprintf(stderr, "\nmsh: job table full");
             return -1;
         }
+        i = shell->job_table_cap / BUF_GROWTH_FACTOR;
     }
 
-    size_t i = 0;
-    for (i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] == NULL)  
-            break;
-    }
-    
     shell->job_table[i] = job;
     shell->job_count++;
-
-    job->job_id = shell->job_count;
+    job->job_id = shell->next_job_id++;
 
     return 0;
 }
@@ -75,12 +72,12 @@ int del_job(t_shell* shell, int job_id, bool flow){
     }
 
     cleanup_job_struct(shell->job_table[i]);
-
     free(shell->job_table[i]);
     shell->job_table[i] = NULL;
-    
-    if(flow)
-        shell->job_count--;
+
+    shell->job_count--;
+    if (is_job_table_empty(shell))
+        shell->next_job_id = 1;
 
     return 0;
 }
@@ -192,13 +189,11 @@ int move_job_position(t_shell* shell, int job_id, t_position pos){
 }
 
 int is_job_table_empty(t_shell* shell){
-    
-    for(size_t i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] != NULL)
-            return 0;
-    }
+    return shell->job_count == 0;
+}
 
-    return 1;
+int is_job_table_full(t_shell* shell){
+    return shell->job_count == MAX_JOBS;
 }
 
 t_job* get_foreground_job(t_shell* shell){

@@ -56,6 +56,8 @@ typedef struct shell_s{
     int last_exit_status; //
     char* sh_name; //
 
+    int next_job_id;
+
     int std_fd_backup[2]; //
     int intr;
 
