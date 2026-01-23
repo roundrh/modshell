@@ -1,5 +1,15 @@
 #include "executor.h"
+#include "builtins.h"
+#include "sigtable_init.h"
+#include <signal.h>
 #include <stdlib.h>
+
+typedef enum e_pgrp {
+
+  PGPR_NONE = 0,
+  PGRP_FATAL = -1,
+  PGRP_INVAL = -2
+} t_pgrp;
 
 /**
  * @file executor.c
@@ -108,7 +118,7 @@ exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
                     bool flow); ///< Forward declaration of function
 static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
                      t_job *subshell_job, bool flow);
-static inline int handle_tcsetpgrp(t_shell *shell, pid_t pgid);
+static inline t_pgrp handle_tcsetpgrp(t_shell *shell, pid_t pgid);
 
 static void cleanup_argv(char **argv) {
 
@@ -147,6 +157,8 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
   pid_t pid = 0;
   int status = 0;
 
+  t_wait_status ret_status = WAIT_FINISHED;
+
   while (!is_job_completed(job) && !is_job_stopped(job)) {
 
     pid = waitpid(-job->pgid, &status, WUNTRACED);
@@ -154,8 +166,6 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       if (errno == ECHILD) {
         break;
       } else if (errno == EINTR) {
-        if(sigint_flag) 
-          return WAIT_INTERRUPTED;
         continue;
       } else {
         perror("waitpid");
@@ -188,10 +198,10 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       job->position = P_BACKGROUND;
 
       job->last_exit_status = WSTOPSIG(status);
-      if (pid == job->last_pid)
-        shell->last_exit_status = job->last_exit_status;
+      shell->last_exit_status = job->last_exit_status;
 
-      return WAIT_STOPPED;
+      ret_status = WAIT_STOPPED;
+      break;
 
     } else if (WIFSIGNALED(status)) {
 
@@ -203,10 +213,13 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
 
       process->exit_status = 128 + sig;
       job->last_exit_status = 128 + sig;
+
+      shell->last_exit_status = job->last_exit_status;
+      ret_status = WAIT_INTERRUPTED;
     }
   }
 
-  return WAIT_FINISHED;
+  return ret_status;
 }
 
 static t_job *make_job(t_shell *shell, char *buf, t_state state, pid_t pgid,
@@ -257,7 +270,6 @@ static t_process *make_process(pid_t pid) {
 static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
                              int is_pipeline_child, int subshell,
                              t_ast_n *pipeline, char **argv) {
-
   if (!argv) {
     perror("argv prop err");
     return -1;
@@ -344,7 +356,7 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
     int status;
     waitpid(pid, &status, 0);
     job->last_pid = pid;
-    shell->last_exit_status = status;
+    shell->last_exit_status = WEXITSTATUS(status);
   }
 
   return pid;
@@ -387,7 +399,7 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
     job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
     cleanup_argv(argv);
-    shell->last_exit_status = job->last_exit_status;
+    shell->last_exit_status = WEXITSTATUS(job->last_exit_status);
 
     return 0;
   } else {
@@ -728,28 +740,28 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
   return last_pid;
 }
 
-static inline int handle_tcsetpgrp(t_shell *shell, pid_t pgid) {
+static inline t_pgrp handle_tcsetpgrp(t_shell *shell, pid_t pgid) {
+
+  if (pgid == -1) {
+    return PGRP_INVAL;
+  }
 
   while (tcsetpgrp(shell->tty_fd, pgid) == -1) {
-    if (errno == EINTR){
+    if (errno == EINTR) {
       continue;
-    }
-    else if (errno == EPERM || errno == EINVAL)
-      break;
+    } else if (errno == EPERM || errno == EINVAL)
+      return PGRP_INVAL;
     else {
       perror("630: tcsetpgrp");
-      return -1;
+      return PGRP_FATAL;
     }
   }
 
-  return 0;
+  return PGPR_NONE;
 }
 
 static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
                     t_job *subshell_job, bool flow) {
-
-  if(sigint_flag) 
-    return -1;
 
   t_job *job = NULL;
   if (!subshell)
@@ -765,16 +777,15 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
   if (shell->job_control_flag && job->position == P_FOREGROUND) {
 
-    if (handle_tcsetpgrp(shell, job->pgid) == -1) {
-      perror("713: tcsetpgrp yield");
+    t_pgrp tc;
+    if ((tc = handle_tcsetpgrp(shell, job->pgid)) == PGRP_FATAL) {
+      perror("720: tcsetpgrp reclaim");
       exit_builtin(node, shell, NULL);
     }
 
-    shell->fg_job = job;
     t_wait_status job_status = wait_for_foreground_job(job, shell);
-    shell->fg_job = NULL;
 
-    if (handle_tcsetpgrp(shell, shell->pgid) == -1) {
+    if ((tc = handle_tcsetpgrp(shell, shell->pgid)) == PGRP_FATAL) {
       perror("720: tcsetpgrp reclaim");
       exit_builtin(node, shell, NULL);
     }
@@ -785,23 +796,27 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
         if (shell->next_job_id > 1)
           shell->next_job_id--;
       }
-    } else if(job_status == WAIT_STOPPED){
+      return WAIT_FINISHED;
+
+    } else if (job_status == WAIT_STOPPED) {
+
       print_job_info(job);
-    } else if(job_status == WAIT_INTERRUPTED){
+      return WAIT_STOPPED;
+    } else if (job_status == WAIT_INTERRUPTED) {
+
       del_job(shell, job->job_id, true);
-      shell->last_exit_status = SIGINT + 128;
-      return shell->last_exit_status;
+      return WAIT_INTERRUPTED;
     }
 
-    if (job_status == - 1) { 
+    if (job_status == WAIT_ERROR) {
       perror("687: failed wait for fg");
-      return -1;
+      exit_builtin(NULL, shell, NULL);
     }
 
   } else if (shell->job_control_flag && job->pgid != -1) {
     if (!subshell)
       print_job_info(job);
-    shell->last_exit_status = 0;
+    return WAIT_FINISHED;
   } else if (!shell->job_control_flag) {
     int status = 0;
 
@@ -809,19 +824,17 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     if (lpid != 0) {
       waitpid(lpid, &status, WUNTRACED);
       shell->last_exit_status = WEXITSTATUS(status);
-      if(errno == EINTR) 
-        shell->last_exit_status = 130;
+      if (errno == EINTR)
+        shell->last_exit_status = WTERMSIG(status) + 128;
       if (!subshell) {
         del_job(shell, job->job_id, true);
         job = NULL;
       }
-      return shell->last_exit_status;
+      return WAIT_FINISHED;
     }
 
     while (waitpid(-1, NULL, WUNTRACED) > 0)
       ;
-    if(errno == EINTR) 
-      shell->last_exit_status = SIGINT + 128;
 
     if (!subshell) {
       del_job(shell, job->job_id, true);
@@ -829,15 +842,15 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     }
   }
 
-  return shell->last_exit_status;
+  return WAIT_FINISHED;
 }
 
 static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
                      t_job *subshell_job, bool flow) {
   if (!node)
     return 0;
-  if(sigint_flag) 
-    return (shell->last_exit_status = 130);
+  if (sigint_flag || sigtstp_flag)
+    return WAIT_INTERRUPTED;
 
   switch (node->op_type) {
   case OP_SEQ:
@@ -865,41 +878,31 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     return 0;
   case OP_WHILE: {
 
-    struct sigaction oldint, newint;
-    memset(&(newint), 0, sizeof(newint));
-    sigemptyset(&newint.sa_mask);
-    newint.sa_handler = sigint_handler;
-
-    if(sigaction(SIGINT, &newint, &oldint) == -1){
-      perror("sigaction apply");
-      return -1;
-    }
-
-    while (1) {
-
+    while (!sigint_flag && !sigtstp_flag) {
       /* force reap when some larp decides to spam the job table */
-      if(is_job_table_full(shell)){
+      if (is_job_table_full(shell)) {
         reap_sigchld_jobs(shell);
       }
 
-      if(sigint_flag) 
+      t_wait_status wait;
+      wait =
+          exec_list(cmd_buf, node->left, shell, subshell, subshell_job, true);
+      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED)
+        break;
+      if (shell->last_exit_status != 0)
         break;
 
-      exec_list(cmd_buf, node->left, shell, subshell, subshell_job, true);
-      if (shell->last_exit_status != 0 || sigint_flag)
+      wait =
+          exec_list(cmd_buf, node->right, shell, subshell, subshell_job, true);
+      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED)
         break;
-
-      exec_list(cmd_buf, node->right, shell, subshell, subshell_job, true);
-
-      if (shell->last_exit_status != 0 || sigint_flag)
+      if (shell->last_exit_status != 0)
         break;
     }
 
-    if(sigaction(SIGINT, &oldint, NULL) == -1){
-      perror("sigaction restore");
-      return -1;
-    }
-
+    reap_sigchld_jobs(shell);
     return shell->last_exit_status;
   }
   default:
@@ -936,27 +939,27 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
     return -1;
   }
 
-  sigset_t block_mask, old_mask;
-  int exec_flag = 1;
-  if (sigemptyset(&block_mask) == -1) {
-    perror("sigemptyset");
-    exec_flag = 0;
-  }
-  if (sigaddset(&block_mask, SIGCHLD)) {
-    perror("sigaddset");
-    exec_flag = 0;
-  }
+  struct sigaction sa_int, osa_int;
+  struct sigaction sa_tstp, osa_tstp;
+  sigemptyset(&sa_int.sa_mask);
+  sigemptyset(&sa_tstp.sa_mask);
+  sa_int.sa_handler = sigint_handler;
+  sa_tstp.sa_handler = sigtstp_handler;
+  sa_int.sa_flags = 0;
+  sa_tstp.sa_flags = 0;
+  sigaction(SIGINT, &sa_int, &osa_int);
+  sigaction(SIGTSTP, &sa_tstp, &osa_tstp);
 
-  if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1) {
-    perror("sigproc");
-    exec_flag = 0;
-  }
+  sigset_t old, new;
+  sigemptyset(&new);
+  sigaddset(&new, SIGCHLD);
+  sigprocmask(SIG_BLOCK, &new, &old);
 
-  if (exec_flag) {
-    exec_list(*cmd_buf, root, shell, 0, NULL, script);
-  }
+  exec_list(*cmd_buf, root, shell, 0, NULL, script);
 
-  sigprocmask(SIG_SETMASK, &old_mask, NULL);
+  sigprocmask(SIG_SETMASK, &old, NULL);
+  sigaction(SIGINT, &osa_int, NULL);
+  sigaction(SIGTSTP, &osa_tstp, NULL);
 
   cleanup_ast(root);
   restore_io(shell);
@@ -966,7 +969,8 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
     dup2(s_fd, STDERR_FILENO);
     close(s_fd);
   }
-  if(!script && sigint_flag) 
-    sigint_flag = 0;
+
+  sigint_flag = 0;
+  sigtstp_flag = 0;
   return 0;
 }

@@ -158,6 +158,7 @@ int main(int argc, char **argv) {
 
   while (1) {
     if (shell_state.is_interactive) {
+
       if (shell_state.job_control_flag && sigchld_flag) {
         sigchld_flag = 0;
         reap_sigchld_jobs(&shell_state);

@@ -81,7 +81,7 @@ static int update_no_noti_jobs(t_shell* shell){
         if(reset_job_table_cap(shell) == -1){
             exit(EXIT_FAILURE);
         }
-        shell->job_count = 0;
+        shell->next_job_id = 1;
     }
     return 0;
 }
@@ -637,9 +637,7 @@ int kill_builtin(t_ast_n* node, t_shell* shell, char** argv) {
 
     if (signum == SIGKILL || signum == SIGTERM || signum == SIGHUP || signum == SIGINT) {
         printf("[%d] Killed - %d\n", job_id, target);
-        while(waitpid(-target, NULL, WNOHANG) > 0);
-        if(job) del_job(shell, job->job_id, false);
-        job = NULL;
+        job->state = S_COMPLETED;
     } 
     else if (signum == SIGSTOP || signum == SIGTSTP || signum == SIGTTIN || signum == SIGTTOU) {
         job->state = S_STOPPED;
