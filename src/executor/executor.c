@@ -399,7 +399,7 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
     job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
     cleanup_argv(argv);
-    shell->last_exit_status = WEXITSTATUS(job->last_exit_status);
+    shell->last_exit_status = job->last_exit_status;
 
     return 0;
   } else {
