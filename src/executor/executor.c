@@ -941,26 +941,28 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   struct sigaction sa_int, osa_int;
   struct sigaction sa_tstp, osa_tstp;
-  sigemptyset(&sa_int.sa_mask);
-  sigemptyset(&sa_tstp.sa_mask);
-  sa_int.sa_handler = sigint_handler;
-  sa_tstp.sa_handler = sigtstp_handler;
-  sa_int.sa_flags = 0;
-  sa_tstp.sa_flags = 0;
-  sigaction(SIGINT, &sa_int, &osa_int);
-  sigaction(SIGTSTP, &sa_tstp, &osa_tstp);
-
   sigset_t old, new;
-  sigemptyset(&new);
-  sigaddset(&new, SIGCHLD);
-  sigprocmask(SIG_BLOCK, &new, &old);
 
+  if (!script) {
+    sigemptyset(&sa_int.sa_mask);
+    sigemptyset(&sa_tstp.sa_mask);
+    sa_int.sa_handler = sigint_handler;
+    sa_tstp.sa_handler = sigtstp_handler;
+    sa_int.sa_flags = 0;
+    sa_tstp.sa_flags = 0;
+    sigaction(SIGINT, &sa_int, &osa_int);
+    sigaction(SIGTSTP, &sa_tstp, &osa_tstp);
+
+    sigemptyset(&new);
+    sigaddset(&new, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &new, &old);
+  }
   exec_list(*cmd_buf, root, shell, 0, NULL, script);
-
-  sigprocmask(SIG_SETMASK, &old, NULL);
-  sigaction(SIGINT, &osa_int, NULL);
-  sigaction(SIGTSTP, &osa_tstp, NULL);
-
+  if (!script) {
+    sigprocmask(SIG_SETMASK, &old, NULL);
+    sigaction(SIGINT, &osa_int, NULL);
+    sigaction(SIGTSTP, &osa_tstp, NULL);
+  }
   cleanup_ast(root);
   restore_io(shell);
   shell->ast.root = NULL;
