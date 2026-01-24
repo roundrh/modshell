@@ -198,7 +198,8 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       job->position = P_BACKGROUND;
 
       job->last_exit_status = WSTOPSIG(status);
-      shell->last_exit_status = job->last_exit_status;
+      if (pid == job->last_pid)
+        shell->last_exit_status = job->last_exit_status;
 
       ret_status = WAIT_STOPPED;
       break;
@@ -214,7 +215,9 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       process->exit_status = 128 + sig;
       job->last_exit_status = 128 + sig;
 
-      shell->last_exit_status = job->last_exit_status;
+      if (pid == job->last_pid)
+        shell->last_exit_status = job->last_exit_status;
+
       ret_status = WAIT_INTERRUPTED;
     }
   }
