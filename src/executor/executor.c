@@ -184,11 +184,10 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       process->running = 0;
 
       process->exit_status = WEXITSTATUS(status);
-      job->last_exit_status = WEXITSTATUS(status);
-
-      if (pid == job->last_pid)
+      if (pid == job->last_pid || job->process_count == 1) {
+        job->last_exit_status = WEXITSTATUS(status);
         shell->last_exit_status = job->last_exit_status;
-
+      }
     } else if (WIFSTOPPED(status)) {
 
       process->stopped = 1;
@@ -198,8 +197,9 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       job->position = P_BACKGROUND;
 
       job->last_exit_status = WSTOPSIG(status);
-      if (pid == job->last_pid)
+      if (pid == job->last_pid || job->process_count == 1) {
         shell->last_exit_status = job->last_exit_status;
+      }
 
       ret_status = WAIT_STOPPED;
       break;
@@ -214,8 +214,7 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
 
       process->exit_status = 128 + sig;
       job->last_exit_status = 128 + sig;
-
-      if (pid == job->last_pid)
+      if (ret_status != WAIT_INTERRUPTED)
         shell->last_exit_status = job->last_exit_status;
 
       ret_status = WAIT_INTERRUPTED;
@@ -399,16 +398,12 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
   }
 
   if (job->position == P_FOREGROUND) {
-
     job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
     cleanup_argv(argv);
     shell->last_exit_status = job->last_exit_status;
-
-    return 0;
   } else {
     exec_bg_builtin(node, shell, job, pipeline, builtin_imp, argv);
     cleanup_argv(argv);
-    return 0;
   }
 
   /* pid 0 on built in execution -- denotes no fork -- shell last exit status
@@ -444,13 +439,12 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job,
     init_ch_sigtable(&(shell->shell_sigtable));
     set_global_shell_ptr_chld(shell);
 
-    int exit_status = exec_list(NULL, node->sub_ast_root, shell, 1, job, flow);
+    exec_list(NULL, node->sub_ast_root, shell, 1, job, flow);
 
-    int status = 0;
-    while (waitpid(-job->pgid, &status, 0) > 0)
+    while (waitpid(-job->pgid, NULL, 0) > 0)
       ;
 
-    _exit(exit_status);
+    _exit(shell->last_exit_status);
   } else if (shell->job_control_flag) {
 
     if (setpgid(pid, job->pgid) < 0) {
@@ -465,6 +459,7 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job,
       perror("fail to add process to jod");
       return -1;
     }
+    job->last_pid = pid;
   }
 
   return pid;
@@ -802,11 +797,9 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       return WAIT_FINISHED;
 
     } else if (job_status == WAIT_STOPPED) {
-
       print_job_info(job);
       return WAIT_STOPPED;
     } else if (job_status == WAIT_INTERRUPTED) {
-
       del_job(shell, job->job_id, true);
       return WAIT_INTERRUPTED;
     }
@@ -901,12 +894,10 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
           wait == WAIT_STOPPED)
         break;
-      if (shell->last_exit_status != 0)
-        break;
     }
 
     reap_sigchld_jobs(shell);
-    return shell->last_exit_status;
+    return WAIT_FINISHED;
   }
   default:
     return exec_job(cmd_buf, node, shell, subshell, subshell_job, flow);
