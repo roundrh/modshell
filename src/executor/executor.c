@@ -321,11 +321,11 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     t_process *process = make_process(pid);
     if (!process)
       return -1;
-    job->last_pid = pid;
     if (add_process_to_job(job, process) == -1) {
       perror("fail to add process to job");
       return -1;
     }
+    job->last_pid = pid;
   }
 
   return pid;
@@ -865,13 +865,11 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
   case OP_IF:
     exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     if (shell->last_exit_status == 0) {
-      return exec_list(cmd_buf, node->right, shell, subshell, subshell_job,
-                       flow);
+      exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
     } else if (node->sub_ast_root) {
-      return exec_list(cmd_buf, node->sub_ast_root, shell, subshell,
-                       subshell_job, flow);
+      exec_list(cmd_buf, node->sub_ast_root, shell, subshell, subshell_job, flow);
     }
-    return 0;
+    return (subshell) ? shell->last_exit_status : WAIT_FINISHED;
   case OP_WHILE: {
 
     while (!sigint_flag && !sigtstp_flag) {

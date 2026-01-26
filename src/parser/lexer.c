@@ -87,6 +87,8 @@ t_token_type check_reserved_word(const char *start, size_t len) {
     return TOKEN_THEN;
   if (len == 4 && strncmp(start, "else", 4) == 0)
     return TOKEN_ELSE;
+  if (len == 4 && strncmp(start, "elif", 4) == 0)
+    return TOKEN_ELIF;
   if (len == 5 && strncmp(start, "while", 5) == 0)
     return TOKEN_WHILE;
   if (len == 4 && strncmp(start, "done", 4) == 0)

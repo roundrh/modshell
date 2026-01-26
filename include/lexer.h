@@ -27,6 +27,7 @@ typedef enum e_token_type {
   TOKEN_IF,
   TOKEN_THEN,
   TOKEN_ELSE,
+  TOKEN_ELIF,
   TOKEN_FI,
   TOKEN_WHILE,
   TOKEN_FOR,

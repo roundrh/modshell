@@ -37,6 +37,28 @@ static int handle_fail_err_clear(t_ast_n *node, int count_redir) {
 
   return -1;
 }
+static int find_at_depth(t_token_stream *ts, int start, int end,
+                         t_token_type wanted) {
+  int depth = 0;
+  for (int i = start; i <= end; i++) {
+    t_token_type t = ts->tokens[i].type;
+
+    if (depth == 0 && t == wanted)
+      return i;
+
+    if (t == TOKEN_IF || t == TOKEN_WHILE || t == TOKEN_OPEN_PAR)
+      depth++;
+    if (depth == 1 && t == wanted)
+      return i;
+
+    if (t == TOKEN_FI || t == TOKEN_DONE || t == TOKEN_CLOSE_PAR)
+      depth--;
+
+    if (depth < 0)
+      return -1;
+  }
+  return -1;
+}
 
 static int handle_realloc_io_redir(t_ast_n *node, size_t *capacity) {
 
@@ -210,28 +232,29 @@ static t_ast_n *parse_command(t_ast *ast, t_token_stream *ts, int start,
 }
 
 static int next_terminator_index(t_token_stream *ts, int start, int end) {
-  int par_depth = 0;
-  int flow_depth = 0;
+  int depth = 0;
 
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
-    if (type == TOKEN_OPEN_PAR)
-      par_depth++;
-    if (type == TOKEN_CLOSE_PAR)
-      par_depth--;
 
-    if (type == TOKEN_IF || type == TOKEN_WHILE)
-      flow_depth++;
-    if (type == TOKEN_FI || type == TOKEN_DONE)
-      flow_depth--;
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_OPEN_PAR) {
+      depth++;
+    }
+    if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_CLOSE_PAR) {
+      depth--;
+    }
 
-    if (par_depth == 0 && flow_depth == 0 &&
+    if (depth < 0)
+      return -2;
+
+    if (depth == 0 &&
         (type == TOKEN_SEQ || type == TOKEN_BG || type == TOKEN_NEWLINE)) {
       return i;
     }
   }
-  return -1;
+  return (depth == 0) ? -1 : -2;
 }
+
 /**
  * @brief parsers terminators in command line buf
  * @param ast pointer to ast
@@ -251,6 +274,10 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
   while (i <= end) {
 
     int term = next_terminator_index(ts, i, end);
+    if (term == -2) {
+      fprintf(stderr, "msh: syntax error: unbalanced token\n");
+      return NULL;
+    }
 
     int cmd_start = i;
     int cmd_end = (term == -1) ? end : term - 1;
@@ -479,60 +506,139 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
   return node;
 }
 
-static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end) {
+static t_ast_n *parse_if_chain(t_ast *ast, t_token_stream *ts, int start,
+                               int end) {
+  t_token_type type = ts->tokens[start].type;
 
-  int then_idx = -1, else_idx = -1, fi_idx = -1;
-  int depth = 0;
-
-  for (int i = start; i <= end; i++) {
-    t_token_type type = ts->tokens[i].type;
-
-    if (type == TOKEN_IF)
-      depth++;
-
-    if (depth == 1) {
-      if (type == TOKEN_THEN)
+  if (type == TOKEN_ELIF) {
+    int then_idx = -1;
+    int depth = 0;
+    for (int i = start; i < end; i++) {
+      if (ts->tokens[i].type == TOKEN_IF)
+        depth++;
+      else if (ts->tokens[i].type == TOKEN_FI)
+        depth--;
+      if (depth == 0 && ts->tokens[i].type == TOKEN_THEN) {
         then_idx = i;
-      if (type == TOKEN_ELSE)
-        else_idx = i;
-      if (type == TOKEN_FI)
-        fi_idx = i;
+        break;
+      }
     }
 
-    if (type == TOKEN_FI)
+    if (then_idx == -1) {
+      fprintf(stderr, "msh: syntax error: expected 'then' after elif\n");
+      return NULL;
+    }
+
+    int next_ctrl = end;
+    depth = 0;
+    for (int i = start; i < end; i++) {
+      t_token_type t = ts->tokens[i].type;
+      if (t == TOKEN_IF)
+        depth++;
+      else if (t == TOKEN_FI)
+        depth--;
+
+      if (depth == 0 && i > then_idx && (t == TOKEN_ELIF || t == TOKEN_ELSE)) {
+        next_ctrl = i;
+        break;
+      }
+    }
+
+    t_ast_n *node = malloc(sizeof(t_ast_n));
+    if (!node)
+      return NULL;
+    init_ast_node(node);
+    node->op_type = OP_IF;
+
+    node->left = parse_terminators(ast, ts, start + 1, then_idx - 1);
+    node->right = parse_terminators(ast, ts, then_idx + 1, next_ctrl - 1);
+    node->sub_ast_root = NULL;
+
+    if (!node->left || !node->right)
+      goto fail;
+
+    if (next_ctrl != end) {
+      node->sub_ast_root = parse_if_chain(ast, ts, next_ctrl, end);
+      if (!node->sub_ast_root)
+        goto fail;
+    }
+    return node;
+
+  fail:
+    if (node->left)
+      cleanup_ast(node->left);
+    if (node->right)
+      cleanup_ast(node->right);
+    free(node);
+    return NULL;
+  }
+
+  if (type == TOKEN_ELSE) {
+    return parse_terminators(ast, ts, start + 1, end - 1);
+  }
+
+  return NULL;
+}
+static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end) {
+
+  int fi_idx = find_at_depth(ts, start, end, TOKEN_FI);
+  if (fi_idx == -1) {
+    fprintf(stderr, "msh: syntax error: missing 'fi'\n");
+    return NULL;
+  }
+
+  int then_idx = find_at_depth(ts, start, fi_idx, TOKEN_THEN);
+  if (then_idx == -1) {
+    fprintf(stderr, "msh: syntax error: expected 'then'\n");
+    return NULL;
+  }
+
+  int next_ctrl = fi_idx;
+  int depth = 0;
+  for (int i = start; i < fi_idx; i++) {
+    t_token_type t = ts->tokens[i].type;
+    if (t == TOKEN_IF)
+      depth++;
+    else if (t == TOKEN_FI)
       depth--;
+
+    if (depth == 1 && i > then_idx && (t == TOKEN_ELIF || t == TOKEN_ELSE)) {
+      next_ctrl = i;
+      break;
+    }
   }
 
-  if (then_idx == -1 || fi_idx == -1) {
-    if (fi_idx == -1)
-      fprintf(stderr, "msh: syntax error: expected token\n");
-    else if (then_idx == -1)
-      fprintf(stderr, "msh: syntax error: expected more\n");
+  t_ast_n *node = malloc(sizeof(t_ast_n));
+  if (!node)
     return NULL;
-  }
-
-  t_ast_n *node = (t_ast_n *)malloc(sizeof(t_ast_n));
-  if (!node) {
-    perror("malloc fatal");
-    return NULL;
-  }
   init_ast_node(node);
   node->op_type = OP_IF;
 
   node->left = parse_terminators(ast, ts, start + 1, then_idx - 1);
-  int body_end = (else_idx != -1) ? else_idx - 1 : fi_idx - 1;
-  node->right = parse_terminators(ast, ts, then_idx + 1, body_end);
+  node->right = parse_terminators(ast, ts, then_idx + 1, next_ctrl - 1);
+  node->sub_ast_root = NULL;
 
-  if (else_idx != -1) {
-    node->sub_ast_root = parse_terminators(ast, ts, else_idx + 1, fi_idx - 1);
-  }
-  if (scan_redirections(node, ts, fi_idx + 1, end) == -1) {
-    perror("scan redir");
-    cleanup_ast_node(node);
-    return NULL;
+  if (!node->left || !node->right)
+    goto fail;
+
+  if (ts->tokens[next_ctrl].type == TOKEN_ELIF ||
+      ts->tokens[next_ctrl].type == TOKEN_ELSE) {
+    node->sub_ast_root = parse_if_chain(ast, ts, next_ctrl, fi_idx);
+    if (!node->sub_ast_root)
+      goto fail;
   }
 
   return node;
+
+fail:
+  if (node->left)
+    cleanup_ast(node->left);
+  if (node->right)
+    cleanup_ast(node->right);
+  if (node->sub_ast_root)
+    cleanup_ast(node->sub_ast_root);
+  free(node);
+  return NULL;
 }
 
 static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
@@ -650,15 +756,6 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
   return node;
 }
 
-// static const char* get_exp_name(t_expansion_type type) {
-//     switch (type) {
-//         case VAR_VAR:     return "VAR_VAR";
-//         case VAR_EXIT_STATUS:       return "VAR_EXIT_STATUS";
-//         case VAR_PID:        return "VAR_PID";
-//         default:            return "VAR_NONE";
-//     }
-// }
-
 // static const char* get_op_name(t_op_type type) {
 //     switch (type) {
 //         case OP_SIMPLE:     return "SIMPLE";
@@ -667,6 +764,8 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
 //         case OP_OR:         return "OR";
 //         case OP_SEQ:        return "SEQ";
 //         case OP_SUBSHELL:   return "SUBSHELL";
+//         case OP_WHILE:      return "WHILE";
+//         case OP_IF:         return "IF";
 //         default:            return "UNKNOWN";
 //     }
 // }
@@ -679,41 +778,30 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
 //     fwrite(tok->start, 1, tok->len, stdout);
 //     printf("'");
 // }
-
 // static void print_ast(t_ast_n *node, int depth) {
 //     if (!node)
 //         return;
 
-//     /* indentation */
 //     for (int i = 0; i < depth; i++)
 //         printf("  ");
 
 //     printf("├── [%s]", get_op_name(node->op_type));
 
-//     /* token segment */
 //     if (node->tok_start && node->tok_segment_len > 0) {
-//         printf(" TOKENS: ");
+//         printf(" ARGS: ");
 //         for (size_t i = 0; i < node->tok_segment_len; i++) {
 //             print_token(&node->tok_start[i]);
-//             if (i + 1 < node->tok_segment_len)
-//                 printf(" ");
+//             if (i + 1 < node->tok_segment_len) printf(" ");
 //         }
 //     }
 
-//     if (node->background)
-//         printf(" [BG]");
-//     printf(" [%d]", node->var_expansion);
-
+//     if (node->background) printf(" [BG]");
 //     printf("\n");
 
-//     /* redirections (still strdup'd filenames) */
 //     if (node->io_redir) {
 //         for (int i = 0; node->io_redir[i]; i++) {
-//             for (int j = 0; j < depth + 1; j++)
-//                 printf("  ");
-
+//             for (int j = 0; j <= depth; j++) printf("  ");
 //             printf("↳ REDIR ");
-
 //             switch (node->io_redir[i]->io_redir_type) {
 //                 case IO_INPUT:   printf("< "); break;
 //                 case IO_TRUNC:   printf("> "); break;
@@ -721,24 +809,42 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
 //                 case IO_HEREDOC: printf("<< "); break;
 //                 default:         printf("? "); break;
 //             }
-
 //             printf("'%s'\n", node->io_redir[i]->filename);
 //         }
 //     }
 
-//     /* left / right */
-//     if (node->left)
-//         print_ast(node->left, depth + 1);
+//     if (node->op_type == OP_IF) {
+//         for (int i = 0; i <= depth; i++) printf("  ");
+//         printf("↳ IF-CONDITION:\n");
+//         print_ast(node->left, depth + 2);
 
-//     if (node->right)
-//         print_ast(node->right, depth + 1);
+//         for (int i = 0; i <= depth; i++) printf("  ");
+//         printf("↳ IF-BODY:\n");
+//         print_ast(node->right, depth + 2);
 
-//     /* subshell */
-//     if (node->op_type == OP_SUBSHELL && node->sub_ast_root) {
-//         for (int i = 0; i < depth + 1; i++)
-//             printf("  ");
-//         printf("↳ SUBSHELL:\n");
+//         if (node->sub_ast_root) {
+//             for (int i = 0; i <= depth; i++) printf("  ");
+//             printf("↳ NEXT-BRANCH (ELIF/ELSE):\n");
+//             print_ast(node->sub_ast_root, depth + 2);
+//         }
+//     }
+//     else if (node->op_type == OP_WHILE) {
+//         for (int i = 0; i <= depth; i++) printf("  ");
+//         printf("↳ WHILE-CONDITION:\n");
+//         print_ast(node->left, depth + 2);
+
+//         for (int i = 0; i <= depth; i++) printf("  ");
+//         printf("↳ WHILE-BODY:\n");
+//         print_ast(node->right, depth + 2);
+//     }
+//     else if (node->op_type == OP_SUBSHELL) {
+//         for (int i = 0; i <= depth; i++) printf("  ");
+//         printf("↳ SUBSHELL-ROOT:\n");
 //         print_ast(node->sub_ast_root, depth + 2);
+//     }
+//     else {
+//         if (node->left) print_ast(node->left, depth + 1);
+//         if (node->right) print_ast(node->right, depth + 1);
 //     }
 // }
 
