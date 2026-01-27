@@ -46,7 +46,8 @@ static int find_at_depth(t_token_stream *ts, int start, int end,
     if (depth == 0 && t == wanted)
       return i;
 
-    if (t == TOKEN_IF || t == TOKEN_WHILE || t == TOKEN_OPEN_PAR)
+    if (t == TOKEN_IF || t == TOKEN_WHILE || t == TOKEN_OPEN_PAR ||
+        t == TOKEN_FOR)
       depth++;
     if (depth == 1 && t == wanted)
       return i;
@@ -237,7 +238,8 @@ static int next_terminator_index(t_token_stream *ts, int start, int end) {
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
 
-    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_OPEN_PAR) {
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_OPEN_PAR ||
+        type == TOKEN_FOR) {
       depth++;
     }
     if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_CLOSE_PAR) {
@@ -458,7 +460,7 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
     else if (type == TOKEN_CLOSE_PAR)
       par_depth--;
 
-    if (type == TOKEN_IF || type == TOKEN_WHILE)
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_FOR)
       flow_depth++;
     else if (type == TOKEN_FI || type == TOKEN_DONE)
       flow_depth--;
@@ -649,7 +651,8 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
 
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
-    if (type == TOKEN_WHILE)
+    if (type == TOKEN_WHILE || type == TOKEN_FOR || type == TOKEN_OPEN_PAR ||
+        type == TOKEN_IF)
       depth++;
     if (depth == 1) {
       if (type == TOKEN_DO)
@@ -657,7 +660,7 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
       if (type == TOKEN_DONE)
         done_idx = i;
     }
-    if (type == TOKEN_DONE)
+    if (type == TOKEN_DONE || type == TOKEN_CLOSE_PAR || type == TOKEN_FI)
       depth--;
   }
   if (do_idx == -1 || done_idx == -1) {
@@ -682,6 +685,77 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
   return node;
 }
 
+static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end) {
+  if (start > end) {
+    fprintf(stderr, "msh: syntax error: incomplete for loop\n");
+    return NULL;
+  }
+
+  t_ast_n *node = malloc(sizeof(t_ast_n));
+  if (!node)
+    return NULL;
+  init_ast_node(node);
+  node->op_type = OP_FOR;
+
+  node->for_var = &(ts->tokens[start + 1]);
+  if (node->for_var->type != TOKEN_SIMPLE) {
+    fprintf(stderr, "msh: syntax error: expected variable name after 'for'\n");
+    goto fail;
+  }
+
+  if (ts->tokens[start + 2].type != TOKEN_IN) {
+    fprintf(stderr, "msh: syntax error: expected 'in' after 'for %.*s'\n",
+            (int)node->for_var->len, node->for_var->start);
+    goto fail;
+  }
+
+  int items_start = start + 3;
+  int do_idx = -1;
+  int done_idx = -1;
+  int depth = 0;
+  for (int i = start; i <= end; i++) {
+    t_token_type t = ts->tokens[i].type;
+
+    if (t == TOKEN_IF || t == TOKEN_FOR || t == TOKEN_WHILE ||
+        t == TOKEN_OPEN_PAR)
+      depth++;
+    if (t == TOKEN_FI || t == TOKEN_DONE || t == TOKEN_CLOSE_PAR)
+      depth--;
+
+    if (t == TOKEN_DO && depth == 1 && do_idx == -1) {
+      do_idx = i;
+    }
+    if (t == TOKEN_DONE && depth == 0) {
+      done_idx = i;
+      break;
+    }
+  }
+  if (do_idx == -1 || done_idx == -1) {
+    fprintf(stderr, "msh: syntax error: missing 'do' or 'done'\n");
+    goto fail;
+  }
+
+  node->for_items = &(ts->tokens[items_start]);
+  node->items_len = do_idx - items_start;
+
+  if (node->items_len > 0) {
+    t_token_type last_item = ts->tokens[do_idx - 1].type;
+    if (last_item == TOKEN_SEQ || last_item == TOKEN_NEWLINE) {
+      node->items_len--;
+    }
+  }
+
+  node->sub_ast_root = parse_terminators(ast, ts, do_idx + 1, done_idx - 1);
+  if (!node->sub_ast_root)
+    goto fail;
+
+  return node;
+
+fail:
+  cleanup_ast_node(node);
+  return NULL;
+}
+
 static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
                                    int end) {
 
@@ -694,8 +768,9 @@ static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
     return parse_if(ast, ts, start, end);
   } else if (type == TOKEN_WHILE) {
     return parse_while(ast, ts, start, end);
+  } else if (type == TOKEN_FOR) {
+    return parse_for(ast, ts, start, end);
   }
-
   return parse_command(ast, ts, start, end);
 }
 

@@ -1,10 +1,10 @@
 #ifndef AST_H
 #define AST_H
 
-#include<stddef.h>
-#include<stdio.h>
-#include<stdlib.h>
-#include"lexer.h"
+#include "lexer.h"
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /**
  * @file ast.h
@@ -35,15 +35,15 @@
  */
 typedef enum e_op_types {
 
-    OP_PIPE = 0,    ///< Pipe Operation (|) 0
-    OP_SIMPLE,      ///< Simple command (Equivelant to OP_NONE) 2
-    OP_SEQ,         ///< Terminator sequential command (;) 3
-    OP_AND,         ///< Conditional and command (&&) 5
-    OP_OR,          ///< Conditional or command (||) 6
-    OP_SUBSHELL,
-    OP_IF,
-    OP_WHILE,
-    OP_FOR
+  OP_PIPE = 0, ///< Pipe Operation (|) 0
+  OP_SIMPLE,   ///< Simple command (Equivelant to OP_NONE) 2
+  OP_SEQ,      ///< Terminator sequential command (;) 3
+  OP_AND,      ///< Conditional and command (&&) 5
+  OP_OR,       ///< Conditional or command (||) 6
+  OP_SUBSHELL,
+  OP_IF,
+  OP_WHILE,
+  OP_FOR
 } t_op_type;
 
 /**
@@ -52,24 +52,25 @@ typedef enum e_op_types {
  */
 typedef enum e_redir_types {
 
-    IO_NONE = 0,
+  IO_NONE = 0,
 
-    IO_APPEND,      ///< Append Redirection (>>)
-    IO_TRUNC,       ///< Truncate Redirection (>)
-    IO_HEREDOC,     ///< Heredoc Redirection (<<)
-    IO_INPUT        ///< Input Redirection (<)
+  IO_APPEND,  ///< Append Redirection (>>)
+  IO_TRUNC,   ///< Truncate Redirection (>)
+  IO_HEREDOC, ///< Heredoc Redirection (<<)
+  IO_INPUT    ///< Input Redirection (<)
 
 } t_redir_type;
 
 /**
  * @typedef struct s_io_redir t_io_redir
- * @brief struct contain redirection type and filename contained within ast node s_ast_n
+ * @brief struct contain redirection type and filename contained within ast node
+ * s_ast_n
  */
-typedef struct s_io_redir{
+typedef struct s_io_redir {
 
-    t_redir_type io_redir_type;
-    char* filename; //filename is delim in case of heredoc
-}t_io_redir;
+  t_redir_type io_redir_type;
+  char *filename; // filename is delim in case of heredoc
+} t_io_redir;
 
 /**
  * @typedef struct s_ast_n t_ast_n
@@ -77,31 +78,35 @@ typedef struct s_io_redir{
  */
 typedef struct s_ast_n {
 
-    t_token* tok_start;
-    size_t tok_segment_len;
+  t_token *tok_start;
+  size_t tok_segment_len;
 
-    int background;
-    t_op_type op_type;
+  int background;
+  t_op_type op_type;
 
-    t_io_redir** io_redir;
-    int redir_bool;
+  t_io_redir **io_redir;
+  int redir_bool;
 
-    struct s_ast_n* left;
-    struct s_ast_n* right;
+  struct s_ast_n *left;
+  struct s_ast_n *right;
 
-    struct s_ast_n* sub_ast_root; 
+  struct s_ast_n *sub_ast_root;
+
+  t_token *for_var;
+  t_token *for_items;
+  size_t items_len;
 } t_ast_n;
 
 /**
  * @typedef struct s_ast t_ast
  * @brief struct containing data of ast.
  *
- * @note this may be removed later as theres no real need for it, 
+ * @note this may be removed later as theres no real need for it,
  but it adds readability so im personally against removing it
  */
-typedef struct s_ast{
-    
-    t_ast_n* root;
+typedef struct s_ast {
+
+  t_ast_n *root;
 } t_ast;
 
 #endif // ! AST_H

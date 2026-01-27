@@ -31,6 +31,7 @@ typedef enum e_token_type {
   TOKEN_FI,
   TOKEN_WHILE,
   TOKEN_FOR,
+  TOKEN_IN,
   TOKEN_DO,
   TOKEN_DONE,
   TOKEN_NEWLINE

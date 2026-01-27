@@ -19,7 +19,7 @@ static long long parse_arith_number(const char **p, t_err_type *err);
 
 static char **expand_fields(t_shell *shell, char **src_str, int *depth);
 
-static char *getenv_local(char **env, const char *var_name) {
+char *getenv_local(char **env, const char *var_name) {
 
   if (!env || !var_name || !*var_name)
     return NULL;
@@ -34,7 +34,7 @@ static char *getenv_local(char **env, const char *var_name) {
   }
   return result;
 }
-static int getenv_local_idx(char **env, const char *var_name) {
+int getenv_local_idx(char **env, const char *var_name) {
 
   if (!env || !var_name || !*var_name)
     return -1;
@@ -67,7 +67,7 @@ static int realloc_argv(char ***argv, size_t *argv_cap) {
   return 0;
 }
 
-static int add_to_env(t_shell *shell, char *var, char *val) {
+int add_to_env(t_shell *shell, char *var, char *val) {
 
   if (!shell || !var || !val)
     return -1;
@@ -783,17 +783,18 @@ static char *expand_tilde(char *src) {
   return buf;
 }
 
-static bool is_op_char(const char* c){
-  switch(*c){
-    case ':':
-    case '#':
-    case '%':
-    case '=':
-    case '-':
-    case '?':
-    case '+': 
-      return true;
-    default: return false;
+static bool is_op_char(const char *c) {
+  switch (*c) {
+  case ':':
+  case '#':
+  case '%':
+  case '=':
+  case '-':
+  case '?':
+  case '+':
+    return true;
+  default:
+    return false;
   }
 }
 
@@ -1024,11 +1025,11 @@ static char *expand_param_op(t_shell *shell, const char *src, t_param_op op,
 
   char *alt = NULL;
   char *var = extract_var_and_alt(src, &alt, err);
-  if(!var || !alt){
-    if(*err == err_fatal)
+  if (!var || !alt) {
+    if (*err == err_fatal)
       exit(EXIT_FAILURE);
-    else{
-      if(*err == err_bad_sub)
+    else {
+      if (*err == err_bad_sub)
         fprintf(stderr, "\nmsh: bad substitution");
       return NULL;
     }
@@ -1199,7 +1200,7 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
         continue;
       }
     }
-    
+
     if (src[idx] == '}') {
       depth--;
       if (depth == 0) {
@@ -1221,7 +1222,7 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
       buf[w++] = src[idx];
       buf[w] = '\0';
     }
-    
+
     idx++;
   }
   if (depth != 0) {
@@ -1237,9 +1238,9 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
     str = strdup(fields[0]);
     cleanup_argv(fields);
   }
-  
+
   free(buf);
-  
+
   if (!str) {
     *i = idx;
     return NULL;
@@ -1249,12 +1250,13 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
   char *result = expand_param(shell, str, &err);
   free(str);
   *i = idx;
-  
+
   if (err != err_none) {
-    if (result) free(result);
+    if (result)
+      free(result);
     return NULL;
   }
-  
+
   return result;
 }
 

@@ -1,6 +1,4 @@
 #include "executor.h"
-#include "builtins.h"
-#include "sigtable_init.h"
 #include <signal.h>
 #include <stdlib.h>
 
@@ -867,7 +865,8 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     if (shell->last_exit_status == 0) {
       exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
     } else if (node->sub_ast_root) {
-      exec_list(cmd_buf, node->sub_ast_root, shell, subshell, subshell_job, flow);
+      exec_list(cmd_buf, node->sub_ast_root, shell, subshell, subshell_job,
+                flow);
     }
     return (subshell) ? shell->last_exit_status : WAIT_FINISHED;
   case OP_WHILE: {
@@ -896,6 +895,36 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
     reap_sigchld_jobs(shell);
     return WAIT_FINISHED;
+  }
+  case OP_FOR: {
+
+    char **expanded_items = NULL;
+    t_err_type err = expand_make_argv(shell, &expanded_items, node->for_items,
+                                      node->items_len);
+    if (err == err_fatal) {
+      exit_builtin(node, shell, NULL);
+    }
+    if (!expanded_items)
+      return WAIT_ERROR;
+
+    char var_name[256];
+    snprintf(var_name, sizeof(var_name), "%.*s", (int)node->for_var->len,
+             node->for_var->start);
+
+    for (int i = 0; expanded_items[i] != NULL; i++) {
+      if (sigint_flag || sigtstp_flag)
+        break;
+
+      add_to_env(shell, var_name, expanded_items[i]);
+      t_wait_status wait = exec_list(cmd_buf, node->sub_ast_root, shell,
+                                     subshell, subshell_job, true);
+
+      if (wait == WAIT_INTERRUPTED || wait == WAIT_STOPPED)
+        break;
+    }
+
+    cleanup_argv(expanded_items);
+    return (subshell) ? shell->last_exit_status : WAIT_FINISHED;
   }
   default:
     return exec_job(cmd_buf, node, shell, subshell, subshell_job, flow);

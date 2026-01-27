@@ -532,6 +532,7 @@ int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   int i = 1;
   if (argv[i] && argv[i][0] == '-' && argv[i][1] == 'n' && argv[i][2] == '\0') {
     newline = false;
+    i++;
   }
 
   for (; argv[i]; i++) {

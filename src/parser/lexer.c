@@ -2,7 +2,8 @@
 
 int init_token_stream(t_token_stream *token_stream) {
 
-  token_stream->tokens = (t_token*)malloc(INITIAL_TOKS_ARR_CAP * sizeof(t_token));
+  token_stream->tokens =
+      (t_token *)malloc(INITIAL_TOKS_ARR_CAP * sizeof(t_token));
   if (token_stream->tokens == NULL) {
     perror("fatal malloc init tokens arr");
     return -1;
@@ -68,7 +69,7 @@ t_token_type get_token_type(const char *c, size_t *len) {
     *len = 1;
     return TOKEN_SEQ;
   }
-  if(c[0] == '\n'){
+  if (c[0] == '\n') {
     *len = 1;
     return TOKEN_NEWLINE;
   }
@@ -93,6 +94,10 @@ t_token_type check_reserved_word(const char *start, size_t len) {
     return TOKEN_WHILE;
   if (len == 4 && strncmp(start, "done", 4) == 0)
     return TOKEN_DONE;
+  if (len == 3 && strncmp(start, "for", 3) == 0)
+    return TOKEN_FOR;
+  if (len == 2 && strncmp(start, "in", 2) == 0)
+    return TOKEN_IN;
   return TOKEN_SIMPLE;
 }
 
