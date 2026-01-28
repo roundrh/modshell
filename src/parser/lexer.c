@@ -180,7 +180,12 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
 
     if (alias_val) {
 
-      bool circular = (strncmp(name, alias_val, strlen(name)) == 0);
+      size_t first_word_len = 0;
+      while (alias_val[first_word_len] && !isspace(alias_val[first_word_len]))
+        first_word_len++;
+
+      bool circular = (strlen(name) == first_word_len &&
+                       strncmp(name, alias_val, first_word_len) == 0);
 
       size_t prefix_len = ts->tokens[i].start - *cmd_line_buf;
       size_t alias_len = strlen(alias_val);

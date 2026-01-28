@@ -18,16 +18,20 @@
 static int handle_read_error(char *buf, ssize_t bytes_read) {
   if (bytes_read == 0) {
     return 1;
-  } // EOF
-
-  /*bytes_read < 0 sets errno to one of these*/
-  if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+  }
+  if (errno == EINTR) {
+    if (sigwinch_flag) {
+      sigwinch_flag = 0;
+      return 2;
+    }
+    return 0;
+  } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
     return 0;
   } else {
     perror("readinp: fatal read error");
     errno = EIO;
     return -1;
-  } // !FATAL
+  }
 }
 
 int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
@@ -50,6 +54,12 @@ int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
   return 0;
 }
 
+void get_term_size(int *rows, int *cols) {
+  struct winsize w;
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+  *rows = w.ws_row;
+  *cols = w.ws_col;
+}
 /**
  * @brief handle reallocation of line buffer
  * @return -1 on fail 0 on success.
@@ -89,6 +99,22 @@ static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len) {
   new_buf = NULL;
 
   return 1;
+}
+
+void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, int cmd_idx) {
+
+  get_term_size(&shell->rows, &shell->cols);
+
+  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\r\x1b[J", 4, cmd);
+
+  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, cmd, cmd_len, cmd);
+
+  if (cmd_idx < (int)cmd_len) {
+    int move_back = (int)cmd_len - cmd_idx;
+    char move_seq[32];
+    int n = snprintf(move_seq, sizeof(move_seq), "\x1b[%dD", move_back);
+    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, move_seq, n, cmd);
+  }
 }
 
 /**
@@ -150,7 +176,8 @@ static int temp_switch_termios(t_shell *shell) {
   return tcsetattr(STDIN_FILENO, TCSANOW, &temptio);
 }
 
-static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx, t_dllnode* pn) {
+static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
+                                 size_t cmd_idx, t_dllnode *pn) {
 
   if (cmd_len == 0 || cmd_idx != cmd_len)
     return pn;
@@ -231,16 +258,17 @@ char *read_user_inp(t_shell *shell) {
       read_status = handle_read_error(cmd, bytes_read);
       if (read_status == 0) {
         continue;
+      } else if (read_status == 2) {
+        redraw_cmd(shell, cmd, cmd_len, cmd_idx);
       } else if (read_status == 1) {
         break;
       } else if (read_status == -1) {
-        perror("read: userinp");
         free(cmd);
         return NULL;
       }
     }
 
-    if(cmd_len == 0 && cmd[0] == '\0'){
+    if (cmd_len == 0 && cmd[0] == '\0') {
       suggestion_node = NULL;
       clr_sgst(cmd_len, cmd_idx);
     }
@@ -262,7 +290,6 @@ char *read_user_inp(t_shell *shell) {
         } else if (read_status_seq == 1) {
           break;
         } else if (read_status_seq == -1) {
-          perror("read: userinp");
           free(cmd);
           return NULL;
         }
@@ -444,12 +471,14 @@ char *read_user_inp(t_shell *shell) {
           HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
           HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, cmd);
         }
-        suggestion_node = search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
+        suggestion_node =
+            search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
         render_suggestion(cmd, cmd_len, cmd_idx, suggestion_node);
       }
 
       clr_sgst(cmd_len, cmd_idx);
-      suggestion_node = search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
+      suggestion_node =
+          search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
       render_suggestion(cmd, cmd_len, cmd_idx, suggestion_node);
       continue;
     }
@@ -489,7 +518,8 @@ char *read_user_inp(t_shell *shell) {
                          "\x1b[%zuD", count_to_shift);
         HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, move_cursor_back, n, cmd);
       } else {
-        suggestion_node = search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
+        suggestion_node =
+            search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
         render_suggestion(cmd, cmd_len, cmd_idx, suggestion_node);
       }
     }

@@ -14,89 +14,82 @@ typedef enum e_pgrp {
  * @brief implementation of functions used to execute AST.
  */
 
+static void wait_for_job_slot(t_shell *shell) {
+  sigset_t mask, oldmask, emptymask;
+
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGCHLD);
+  sigprocmask(SIG_BLOCK, &mask, &oldmask);
+
+  while (is_job_table_full(shell)) {
+    sigemptyset(&emptymask);
+    sigsuspend(&emptymask);
+
+    reap_sigchld_jobs(shell);
+
+    if (sigint_flag || sigtstp_flag) {
+      break;
+    }
+  }
+
+  sigprocmask(SIG_SETMASK, &oldmask, NULL);
+}
+
+void del_completed_jobs(t_shell *shell) {
+
+  for (int i = 0; i < shell->job_table_cap; i++) {
+    t_job *j = shell->job_table[i];
+    if (!j)
+      continue;
+
+    if (j->state == S_COMPLETED)
+      del_job(shell, j->job_id, false);
+  }
+}
+
 int reap_sigchld_jobs(t_shell *shell) {
+  int status;
+  pid_t pid;
 
-  sigset_t block_mask, old_mask;
-  int reap_flag = 1;
-  if (sigemptyset(&block_mask) == -1) {
-    perror("sigemptyset");
-    reap_flag = 0;
-  }
-  if (sigaddset(&block_mask, SIGCHLD) == -1) {
-    perror("sigaddset");
-    reap_flag = 0;
-  }
+  int reaped = -1;
 
-  if (sigprocmask(SIG_BLOCK, &block_mask, &old_mask) == -1) {
-    perror("sigproc");
-    reap_flag = 0;
-  }
+  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+    reaped = 0;
 
-  size_t i = 0;
-  t_job *job = NULL;
-
-  if (!reap_flag) {
-    return -1;
-  }
-
-  while (i < shell->job_table_cap) {
-    job = shell->job_table[i];
+    t_job *job = find_job_by_pid(shell, pid);
     if (!job) {
-      i++;
       continue;
     }
 
-    int status;
-    pid_t pid;
+    t_process *process = find_process_in_job(job, pid);
+    if (!process)
+      continue;
 
-    while ((pid = waitpid(-job->pgid, &status, WNOHANG)) > 0) {
-
-      t_process *process = find_process_in_job(job, pid);
-      if (!process)
-        break;
-
-      if (WIFEXITED(status) || WIFSIGNALED(status)) {
-        process->completed = 1;
-        process->stopped = 0;
-        process->running = 0;
-      } else if (WIFSTOPPED(status)) {
-        process->stopped = 1;
-        process->completed = 0;
-        process->running = 0;
-      } else if (WIFCONTINUED(status)) {
-        process->running = 1;
-        process->stopped = 0;
-        process->completed = 0;
-      }
-    }
-
-    if (job && is_job_completed(job) && job->position == P_BACKGROUND) {
-      job->state = S_COMPLETED;
-      print_job_info(job);
-      del_job(shell, job->job_id, false);
-    } else if (job && is_job_stopped(job)) {
+    if (WIFEXITED(status) || WIFSIGNALED(status)) {
+      process->completed = 1;
+      process->stopped = 0;
+      process->running = 0;
+    } else if (WIFSTOPPED(status)) {
+      process->stopped = 1;
+      process->completed = 0;
+      process->running = 0;
       job->state = S_STOPPED;
-      print_job_info(job);
-      job->position = P_BACKGROUND;
-    } else if (job && job->position == P_BACKGROUND) {
+    } else if (WIFCONTINUED(status)) {
+      process->running = 1;
+      process->stopped = 0;
+      process->completed = 0;
       job->state = S_RUNNING;
     }
 
-    i++;
-  }
-
-  if (sigprocmask(SIG_SETMASK, &old_mask, NULL) == -1) {
-    perror("sigproc");
-  }
-
-  if (is_job_table_empty(shell)) {
-    if (reset_job_table_cap(shell) == -1) {
-      exit(EXIT_FAILURE);
+    if (is_job_completed(job)) {
+      job->state = S_COMPLETED;
+      print_job_info(job);
     }
-    shell->next_job_id = 1;
-    shell->job_count = 0;
   }
-  return 0;
+
+  del_completed_jobs(shell);
+
+  return reaped;
 }
 
 static t_shell *g_shell_ptr = NULL;
@@ -815,19 +808,14 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     int status = 0;
 
     /* builtins set shell exit status - return pid 0 */
-    if (lpid != 0) {
+    if (lpid > 0) {
       waitpid(lpid, &status, WUNTRACED);
       shell->last_exit_status = WEXITSTATUS(status);
-      if (errno == EINTR)
+      if (WIFSIGNALED(status))
         shell->last_exit_status = WTERMSIG(status) + 128;
-      if (!subshell) {
-        del_job(shell, job->job_id, true);
-        job = NULL;
-      }
-      return WAIT_FINISHED;
     }
 
-    while (waitpid(-1, NULL, WUNTRACED) > 0)
+    while (waitpid(-1, NULL, WNOHANG) > 0)
       ;
 
     if (!subshell) {
@@ -837,6 +825,54 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
   }
 
   return WAIT_FINISHED;
+}
+
+static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell,
+                        bool flow) {
+
+  t_job *job = make_job(shell, cmd_buf, S_RUNNING, -1, P_BACKGROUND);
+  if (!job)
+    return -1;
+  job->command = strdup(cmd_buf);
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("fork");
+    return -1;
+  }
+
+  if (pid == 0) {
+
+    setpgid(0, 0);
+
+    shell->job_control_flag = 0;
+    init_ch_sigtable(&(shell->shell_sigtable));
+    set_global_shell_ptr_chld(shell);
+
+    node->background = 0;
+
+    exec_list(cmd_buf, node, shell, 1, job, flow);
+    while (waitpid(-job->pgid, NULL, 0) > 0)
+      ;
+
+    _exit(shell->last_exit_status);
+  } else {
+    if (job->pgid == -1)
+      job->pgid = pid;
+
+    t_process *process = make_process(pid);
+    if (process) {
+      add_process_to_job(job, process);
+      job->last_pid = pid;
+    }
+
+    if (shell->job_control_flag) {
+      setpgid(pid, job->pgid);
+      print_job_info(job);
+    }
+
+    return WAIT_FINISHED;
+  }
 }
 
 static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
@@ -851,11 +887,18 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     return exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
   case OP_AND:
+    if (node->background && !subshell) {
+      return exec_cond_bg(cmd_buf, node, shell, flow);
+    }
     exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     if (shell->last_exit_status == 0)
       exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
     return shell->last_exit_status;
+
   case OP_OR:
+    if (node->background && !subshell) {
+      return exec_cond_bg(cmd_buf, node, shell, flow);
+    }
     exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     if (shell->last_exit_status != 0)
       exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
@@ -874,7 +917,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     while (!sigint_flag && !sigtstp_flag) {
       /* force reap when some larp decides to spam the job table */
       if (is_job_table_full(shell)) {
-        reap_sigchld_jobs(shell);
+        wait_for_job_slot(shell);
       }
 
       t_wait_status wait;
@@ -893,7 +936,6 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
         break;
     }
 
-    reap_sigchld_jobs(shell);
     return WAIT_FINISHED;
   }
   case OP_FOR: {
@@ -902,7 +944,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     t_err_type err = expand_make_argv(shell, &expanded_items, node->for_items,
                                       node->items_len);
     if (err == err_fatal) {
-      exit_builtin(node, shell, NULL);
+      exit_builtin(NULL, shell, NULL);
     }
     if (!expanded_items)
       return WAIT_ERROR;
@@ -912,6 +954,11 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
              node->for_var->start);
 
     for (int i = 0; expanded_items[i] != NULL; i++) {
+
+      if (is_job_table_full(shell)) {
+        wait_for_job_slot(shell);
+      }
+
       if (sigint_flag || sigtstp_flag)
         break;
 

@@ -589,59 +589,36 @@ static bool is_valid_var_char(char c, bool first_char) {
 }
 
 static char *extract_arith(const char *src, size_t *i, t_err_type *err) {
-
-  size_t idx = *i;
-  idx++;
+  size_t idx = *i + 1;
   int depth = 1;
   size_t len = 0;
 
-  size_t f = idx;
-  size_t lastidx = -1;
-  while (src[f]) {
-    if (src[f] == ')')
-      lastidx = f;
-    f++;
-  }
-  size_t j = lastidx - 1;
-  while (j >= idx) {
-    if (src[j] == ')')
-      break;
-    j--;
-  }
-  char *srcpy = strdup(src);
-  srcpy[j + 1] = ')';
-  j += 2;
-  while (srcpy[j])
-    srcpy[j++] = '\0';
-
-  size_t max = strlen(srcpy);
-  if (max <= 5) {
-    free(srcpy);
-    return strdup("");
-  }
-
-  const char *start = &(srcpy[idx]);
-  while (depth > 0) {
-    if (idx + 1 < max && srcpy[idx] == '(' && srcpy[idx + 1] == '(') {
+  while (src[idx] && depth > 0) {
+    if (src[idx] == '(' && src[idx + 1] == '(') {
       depth++;
       idx += 2;
-    }
-    if (idx + 1 < max && srcpy[idx] == ')' && srcpy[idx + 1] == ')') {
+      len += 2;
+    } else if (src[idx] == ')' && src[idx + 1] == ')') {
       depth--;
+      if (depth == 0) {
+        break;
+      }
       idx += 2;
+      len += 2;
+    } else {
+      idx++;
+      len++;
     }
-    if (depth == 0)
-      break;
-    idx++;
-    len++;
   }
 
-  char *eqn_buf = strndup(start, len);
-  if (!eqn_buf)
+  if (depth != 0) {
+    *err = err_syntax;
     return NULL;
-  free(srcpy);
+  }
 
-  *i = idx;
+  char *eqn_buf = strndup(&src[*i + 1], len);
+
+  *i = idx + 2;
   return eqn_buf;
 }
 
@@ -1271,35 +1248,55 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
   size_t l_cap = BUFFER_INITIAL_LEN;
   cmd_line[0] = '\0';
 
-  int depth = 1;
+  int sub_depth = 1;
+  int arith_depth = 0;
   idx++;
   size_t w = 0;
-  while (depth > 0 && idx <= slen) {
+  while ((sub_depth > 0 || arith_depth > 0) && idx < slen) {
     if (w + 1 >= l_cap) {
       if (realloc_buf(&cmd_line, &l_cap) == -1) {
-        perror("realloc fatal");
         free(cmd_line);
         return NULL;
       }
     }
 
-    /* parens will be whitespace seperated */
-    if (idx + 1 <= slen && src[idx] == '$' && src[idx + 2] == '(') {
-      depth++;
+    if (idx + 2 < slen && src[idx] == '$' && src[idx + 1] == '(' &&
+        src[idx + 2] == '(') {
+      arith_depth++;
       cmd_line[w++] = src[idx++];
-      idx++;
+      cmd_line[w++] = src[idx++];
+      cmd_line[w++] = src[idx++];
+      continue;
+    }
+
+    if (idx + 1 < slen && src[idx] == '$' && src[idx + 1] == '(') {
+      sub_depth++;
+      cmd_line[w++] = src[idx++];
+      cmd_line[w++] = src[idx++];
+      continue;
+    }
+
+    if (arith_depth > 0 && idx + 1 < slen && src[idx] == ')' &&
+        src[idx + 1] == ')') {
+      arith_depth--;
+      cmd_line[w++] = src[idx++];
       cmd_line[w++] = src[idx++];
       continue;
     }
 
     if (src[idx] == ')') {
-      depth--;
-      if (depth == 0)
-        break;
+      if (arith_depth > 0) {
+        cmd_line[w++] = src[idx++];
+      } else {
+        sub_depth--;
+        if (sub_depth == 0)
+          break;
+        cmd_line[w++] = src[idx++];
+      }
+      continue;
     }
 
     cmd_line[w++] = src[idx++];
-    cmd_line[w] = '\0';
   }
   cmd_line[w] = '\0';
 
@@ -1329,6 +1326,8 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
     dup2(fds[1], STDOUT_FILENO);
     close(fds[1]);
     parse_and_execute(&cmd_line, shell, &ts, false);
+
+    fflush(stdout);
 
     _exit(shell->last_exit_status);
   } else {
@@ -1586,6 +1585,198 @@ static char **expand_fields(t_shell *shell, char **src_str, int *depth) {
   return fields;
 }
 
+static int find_brace_pair(const char *s, int *l, int *r) {
+
+  int depth = 0;
+  bool in_single = false, in_double = false;
+  for (int i = 0; s[i]; i++) {
+
+    if (s[i] == '\'' && !in_double)
+      in_single = !in_single;
+    else if (s[i] == '"' && !in_single)
+      in_double = !in_double;
+
+    if (in_single)
+      continue;
+
+    if (s[i] == '{') {
+      if (i - 1 >= 0 && s[i - 1] == '$')
+        continue;
+      if (depth == 0)
+        *l = i;
+      depth++;
+    } else if (s[i] == '}') {
+      depth--;
+      if (depth == 0) {
+        *r = i;
+        return 0;
+      }
+    }
+  }
+  return -1;
+}
+
+static char **split_brace_options(const char *s) {
+  size_t cap = ARGV_INITIAL_LEN;
+  size_t argc = 0;
+  char **out = calloc(cap, sizeof(char *));
+
+  int depth = 0;
+  bool in_single = false, in_double = false;
+
+  const char *start = s;
+
+  for (const char *p = s;; p++) {
+    char c = *p;
+
+    if (c == '\'' && !in_double)
+      in_single = !in_single;
+    else if (c == '"' && !in_single)
+      in_double = !in_double;
+
+    if (!in_single && !in_double) {
+      if (c == '{')
+        depth++;
+      else if (c == '}')
+        depth--;
+    }
+
+    if ((c == ',' && depth == 0 && !in_single && !in_double) || c == '\0') {
+      char *part = strndup(start, p - start);
+      push_field(&out, &argc, &cap, &part);
+
+      if (c == '\0')
+        break;
+
+      start = p + 1;
+    }
+  }
+
+  return out;
+}
+
+static char **expand_brace_range(const char *s) {
+
+  const char *dots = strstr(s, "..");
+  if (!dots)
+    return NULL;
+
+  char *lhs = strndup(s, dots - s);
+  char *rhs = strdup(dots + 2);
+
+  if (!*lhs || !*rhs) {
+    free(lhs);
+    free(rhs);
+    return NULL;
+  }
+
+  size_t cap = ARGV_INITIAL_LEN;
+  size_t argc = 0;
+  char **out = calloc(cap, sizeof(char *));
+
+  /* numeric range */
+  if ((isdigit(lhs[0]) || lhs[0] == '-') &&
+      (isdigit(rhs[0]) || rhs[0] == '-')) {
+
+    int start = atoi(lhs);
+    int end = atoi(rhs);
+
+    int step = (start <= end) ? 1 : -1;
+
+    int width = 0;
+    if (lhs[0] == '0' || rhs[0] == '0')
+      width = MAX(strlen(lhs), strlen(rhs));
+
+    for (int i = start;; i += step) {
+
+      char buf[64];
+
+      if (width)
+        snprintf(buf, sizeof(buf), "%0*d", width, i);
+      else
+        snprintf(buf, sizeof(buf), "%d", i);
+
+      char *tmp = strdup(buf);
+      push_field(&out, &argc, &cap, &tmp);
+
+      if (i == end)
+        break;
+    }
+  } else if (strlen(lhs) == 1 && strlen(rhs) == 1 && isalpha(lhs[0]) &&
+             isalpha(rhs[0])) {
+
+    char start = lhs[0];
+    char endc = rhs[0];
+
+    int step = (start <= endc) ? 1 : -1;
+
+    for (char c = start;; c += step) {
+      char buf[2] = {c, 0};
+      char *tmp = strdup(buf);
+      push_field(&out, &argc, &cap, &tmp);
+
+      if (c == endc)
+        break;
+    }
+  } else {
+    free(lhs);
+    free(rhs);
+    cleanup_argv(out);
+    return NULL;
+  }
+
+  free(lhs);
+  free(rhs);
+  return out;
+}
+
+char **expand_word_braces(const char *word) {
+
+  int l = -1, r = -1;
+  if (find_brace_pair(word, &l, &r) == -1) {
+    char **out = calloc(2, sizeof(char *));
+    out[0] = strdup(word);
+    return out;
+  }
+
+  char *prefix = strndup(word, l);
+  char *inside = strndup(word + l + 1, r - l - 1);
+  char *suffix = strdup(word + r + 1);
+
+  char **options = expand_brace_range(inside);
+  if (!options)
+    options = split_brace_options(inside);
+
+  size_t res_cap = ARGV_INITIAL_LEN;
+  size_t res_argc = 0;
+  char **result = calloc(res_cap, sizeof(char *));
+
+  for (int i = 0; options[i]; i++) {
+
+    size_t sz = strlen(prefix) + strlen(options[i]) + strlen(suffix) + 1;
+    char *combined = malloc(sz);
+    snprintf(combined, sz, "%s%s%s", prefix, options[i], suffix);
+
+    char **rec = expand_word_braces(combined);
+    free(combined);
+
+    for (int j = 0; rec[j]; j++) {
+      char *s = rec[j];
+      push_field(&result, &res_argc, &res_cap, &s);
+    }
+
+    free(rec);
+    free(options[i]);
+  }
+
+  free(options);
+  free(prefix);
+  free(inside);
+  free(suffix);
+
+  return result;
+}
+
 static int redir_tok_found(t_token *tok) {
 
   if (!tok || tok->type == -1)
@@ -1626,27 +1817,34 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *tokens,
       return err_fatal;
     }
 
-    int f_depth = 0;
-    char **expanded_fields = expand_fields(shell, &str, &f_depth);
+    char **brace_words = expand_word_braces(str);
     free(str);
 
-    if (!expanded_fields)
-      continue;
+    for (int b = 0; brace_words[b]; b++) {
 
-    for (int i = 0; expanded_fields[i]; i++) {
-      if (argc >= argv_cap - 1) {
-        if (realloc_argv(&argv_local, &argv_cap) == -1) {
-          cleanup_argv(expanded_fields);
-          cleanup_argv(argv_local);
-          return err_fatal;
+      int f_depth = 0;
+      char *tmp = strdup(brace_words[b]);
+      char **expanded_fields = expand_fields(shell, &tmp, &f_depth);
+      free(tmp);
+
+      if (!expanded_fields)
+        continue;
+
+      for (int i = 0; expanded_fields[i]; i++) {
+        if (argc >= argv_cap - 1) {
+          if (realloc_argv(&argv_local, &argv_cap) == -1) {
+            cleanup_argv(expanded_fields);
+            cleanup_argv(argv_local);
+            return err_fatal;
+          }
         }
+        expand_glob(&expanded_fields);
+        argv_local[argc++] = strip_quotes(expanded_fields[i]);
+        argv_local[argc] = NULL;
       }
-      argv_local[argc++] = strip_quotes(expanded_fields[i]);
-      argv_local[argc] = NULL;
+      cleanup_argv(expanded_fields);
     }
-    cleanup_argv(expanded_fields);
-
-    expand_glob(&argv_local);
+    cleanup_argv(brace_words);
   }
 
   *argv = argv_local;

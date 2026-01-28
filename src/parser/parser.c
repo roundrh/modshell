@@ -365,7 +365,7 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
     else if (type == TOKEN_CLOSE_PAR)
       par_depth--;
 
-    if (type == TOKEN_IF || type == TOKEN_WHILE)
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_FOR)
       flow_depth++;
     else if (type == TOKEN_FI || type == TOKEN_DONE)
       flow_depth--;

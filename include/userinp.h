@@ -1,21 +1,23 @@
 #ifndef USERINP_H
 #define USERINP_H
 
-#include<termios.h>
-#include<stdio.h>
-#include<unistd.h>
-#include<string.h>
-#include<stdlib.h>
-#include<errno.h>
-#include"terminal_control.h"
-#include"shell.h"
+#include "shell.h"
+#include "sigtable_init.h"
+#include "terminal_control.h"
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
 
 /**
  * @file userinp.h
  * @brief Raw termios user input handling and function declarations
  *
- * This module provides macros to safely handle errors in reading user input from stdin in the terminal
- * and declares function to read user input.
+ * This module provides macros to safely handle errors in reading user input
+ * from stdin in the terminal and declares function to read user input.
  */
 
 /**
@@ -24,7 +26,7 @@
  */
 #define INITIAL_COMMAND_LENGTH 1024
 
-/** 
+/**
  * @def MAX_COMMAND_LENGTH
  * @brief maximum length line buffer reaches before fail
  */
@@ -36,10 +38,10 @@
  */
 #define BUF_GROWTH_FACTOR 2
 
-#define HANDLE_WRITE_FAIL_FATAL(fd, buf, len, bufptr) \
-    if(handle_write_fail(fd, buf, len, bufptr) == -1){\
-        exit(EXIT_FAILURE);                           \
-    }                                                 \
+#define HANDLE_WRITE_FAIL_FATAL(fd, buf, len, bufptr)                          \
+  if (handle_write_fail(fd, buf, len, bufptr) == -1) {                         \
+    exit(EXIT_FAILURE);                                                        \
+  }
 
 /**
  * @def HANDLE_SNPRINTF_FAIL_FATAL(fd, str, len, buffer_ptr)
@@ -48,34 +50,35 @@
  * @param fmt size of string
  * @param arg arguments of how to write to string
  * @param buffer_ptr pointer to buffer to free on failure
- * 
+ *
  * If snprintf fails, prints error, frees buffer if provided,
  * sets errno to EIO, and returns NULL.
  */
-#define HANDLE_SNPRINTF_FAIL_FATAL(src, fmt, arg, buffer_ptr) \
-    if (snprintf(src, sizeof(src), fmt, arg) < 0) {           \
-        perror("readinp: snprintf fail");                     \
-        /* assume fatal error, set errno */                   \
-        errno = EIO;                                          \
-        if(buffer_ptr)                                        \
-            free(buffer_ptr);                                 \
-        return NULL;                                          \
-    }                                                         \
+#define HANDLE_SNPRINTF_FAIL_FATAL(src, fmt, arg, buffer_ptr)                  \
+  if (snprintf(src, sizeof(src), fmt, arg) < 0) {                              \
+    perror("readinp: snprintf fail");                                          \
+    /* assume fatal error, set errno */                                        \
+    errno = EIO;                                                               \
+    if (buffer_ptr)                                                            \
+      free(buffer_ptr);                                                        \
+    return NULL;                                                               \
+  }
 
+void get_term_size(int *rows, int *cols);
 
-int handle_write_fail(int fd, const char *buf, size_t len, char* buffer_ptr);
+int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr);
 /**
  * @brief reads user input from terminal
  * @param shell pointer to shell struct
  * @return dynamically allocd string containing user input, NULL on error
- * 
+ *
  * Function reads user input with buffer management
  * Buffer starts at INITIAL_COMMAND_LENGTH and grows by BUF_GROWTH_FACTOR
  * up to MAX_COMMAND_LENGTH. Handles terminal control and error conditions.
- * 
+ *
  * @note Caller must free the returned string
  * @warning Buffer resizes maximum of 2 times before failing
  */
-char* read_user_inp(t_shell* shell);
+char *read_user_inp(t_shell *shell);
 
 #endif // ! USERINP_H

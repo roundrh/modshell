@@ -9,6 +9,7 @@
 volatile sig_atomic_t sigchld_flag = 0;
 volatile sig_atomic_t sigint_flag = 0;
 volatile sig_atomic_t sigtstp_flag = 0;
+volatile sig_atomic_t sigwinch_flag = 0;
 
 void sigchld_handler(int sig) {
   (void)sig;
@@ -21,6 +22,10 @@ void sigint_handler(int sig) {
 void sigtstp_handler(int sig) {
   (void)sig;
   sigtstp_flag = 1;
+}
+void sigwinch_handler(int sig) {
+  (void)sig;
+  sigwinch_flag = 1;
 }
 
 int init_pa_sigtable(t_shell_sigtable *sigtable) {
@@ -36,6 +41,7 @@ int init_pa_sigtable(t_shell_sigtable *sigtable) {
   INIT_SIG(sigtable, sigttin, SIG_IGN, 0, SIGTTIN);
   INIT_SIG(sigtable, sigchld, sigchld_handler, SA_RESTART | SA_NOCLDSTOP,
            SIGCHLD);
+  INIT_SIG(sigtable, sigwinch, sigwinch_handler, 0, SIGWINCH);
 
   return 0;
 }

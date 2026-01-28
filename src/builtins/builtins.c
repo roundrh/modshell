@@ -919,16 +919,8 @@ int exit_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     exit_status = atoi(argv[1]);
   }
 
-  if (shell->job_table != NULL) {
-
-    for (size_t i = 0; i < shell->job_table_cap; i++) {
-      t_job *job = shell->job_table[i];
-      if (!job)
-        continue;
-
-      kill(-job->pgid, SIGKILL);
-    }
-  }
+  /* perform last sweep reap */
+  update_no_noti_jobs(shell);
 
   cleanup_argv(argv);
   exit(exit_status);

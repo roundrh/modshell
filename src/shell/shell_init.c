@@ -1,5 +1,4 @@
 #include "shell_init.h"
-#include "builtins_ht.h"
 
 /**
  * @file shell_init.c
@@ -179,10 +178,11 @@ static int copy_environ_to_env(t_shell *shell) {
 }
 
 static int push_def_aliases(t_alias_hashtable *ht) {
+  insert_alias(ht, "l", "ls -lAh");
   insert_alias(ht, "ls", "ls --color=tty");
   insert_alias(ht, "fetch", "neofetch");
   insert_alias(ht, "grep", "grep --color=auto");
-  insert_alias(ht, "ll", "ls -alh");
+  insert_alias(ht, "ll", "ls -lh");
   insert_alias(ht, "vim", "nvim");
   insert_alias(ht, "ff", "fastfetch");
   insert_alias(ht, "nf", "neofetch");
@@ -199,6 +199,8 @@ static int push_def_aliases(t_alias_hashtable *ht) {
  * @note mallocd env freed in shell_cleanup.h, called atexit()
  */
 int init_shell_state(t_shell *shell) {
+
+  get_term_size(&shell->rows, &shell->cols);
 
   shell->intr = 0;
   shell->next_job_id = 1;

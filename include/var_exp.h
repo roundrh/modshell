@@ -39,6 +39,8 @@
  */
 #define MAX_IFS_SIZE 128
 
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+
 /**
  * @define INITIAL_IFS_LEN
  * @brief initial length of the IFS vector

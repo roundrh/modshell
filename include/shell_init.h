@@ -1,20 +1,23 @@
 #ifndef SHELL_INIT_H
 #define SHELL_INIT_H
 
-#include<stdio.h>
-#include<stdlib.h>
-#include<sys/ioctl.h>
-#include"shell.h"
-#include"sigtable_init.h"
-#include"builtins.h"
-#include"ast_init.h"
-#include"terminal_control.h"
+#include "ast_init.h"
+#include "builtins.h"
+#include "builtins_ht.h"
+#include "shell.h"
+#include "sigtable_init.h"
+#include "terminal_control.h"
+#include "userinp.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
 
 /**
  * @file shell_init.h
- * 
- * This module is used to define hardcoded limits, environ, and an initializer for the shell struct to avoid recursive inclusion.
- * 
+ *
+ * This module is used to define hardcoded limits, environ, and an initializer
+ * for the shell struct to avoid recursive inclusion.
+ *
  */
 
 /**
@@ -37,7 +40,8 @@
 
 /**
  * @def INITIAL_JOB_TABLE_LENGTH
- * @brief limit for the initial length of the array of pointers to job structs (job table)
+ * @brief limit for the initial length of the array of pointers to job structs
+ * (job table)
  */
 #define INITIAL_JOB_TABLE_LENGTH 32
 
@@ -64,11 +68,11 @@ extern char **environ;
  * @param shell pointer to shell struct
  * @brief initializes values of shell struct.
  *
- * This function initializes values to null, or mallocs and checks for errors during initializes
- * if error occurs, returns -1 and program dies.
+ * This function initializes values to null, or mallocs and checks for errors
+ * during initializes if error occurs, returns -1 and program dies.
  *
  * @note Driver calls this function prior to main loop.
  */
-int init_shell_state(t_shell* shell);
+int init_shell_state(t_shell *shell);
 
 #endif // ! SHELL_INIT_H
