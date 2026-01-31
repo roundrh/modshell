@@ -28,7 +28,7 @@ typedef struct shell_s {
   int is_interactive;
   int job_control_flag;
 
-  char **env; // special malloc
+  char **env;
   size_t env_count;
   size_t env_cap;
 
@@ -38,6 +38,9 @@ typedef struct shell_s {
 
   int tty_fd;
   pid_t pgid;
+
+  char *prompt;
+  size_t prompt_len;
 
   t_job **job_table;    //
   size_t job_table_cap; //

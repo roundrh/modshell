@@ -540,8 +540,16 @@ int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     if (argv[i + 1])
       putchar(' ');
   }
-  if (newline)
-    putchar('\n');
+  if (newline) {
+    while (write(1, "\n", 1) < 0) {
+      if (errno == EINTR)
+        continue;
+      else
+        return -1;
+    }
+  }
+
+  fflush(stdout);
 
   return 0;
 }
@@ -836,9 +844,8 @@ int set_builtin(t_ast_n *node, t_shell *shell, char **argv) {
  * @return Always returns 0
  */
 int clear_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
-  printf("\033[2J\033[H");
-
+  HANDLE_WRITE_FAIL_FATAL(0, "\033[2J\033[H", 7, NULL);
+  fflush(stdout);
   return 0;
 }
 

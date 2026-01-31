@@ -63,6 +63,7 @@
  */
 extern char **environ;
 
+void get_shell_prompt(t_shell *shell);
 /**
  * @def init_shell_state(t_shell* shell)
  * @param shell pointer to shell struct

@@ -189,6 +189,92 @@ static int push_def_aliases(t_alias_hashtable *ht) {
   return 0;
 }
 
+static int replace_home_dir(char **buf) {
+
+  if (strncmp(*buf, "/home/", 6) != 0)
+    return -1;
+
+  char *replacement = strdup(*buf);
+  if (!replacement) {
+    perror("115: strdup malloc error");
+    return -1;
+  }
+
+  char *bufbuf = malloc(PATH_MAX);
+  if (!bufbuf) {
+    perror("121: bufbuf malloc error");
+    free(replacement);
+    return -1;
+  }
+  bufbuf[0] = '~';
+  bufbuf[1] = '\0';
+
+  char *part = strtok(replacement, "/"); // ""
+  part = strtok(NULL, "/");              // home
+
+  while ((part = strtok(NULL, "/")) != NULL) {
+    strcat(bufbuf, "/");
+    strcat(bufbuf, part);
+  }
+  for (int i = 0; i < strlen(*buf); i++)
+    (*buf)[i] = '\0'; ///< Clear buf
+  free(*buf);
+  *buf = strdup(bufbuf);
+  free(bufbuf);
+  free(replacement);
+
+  return 0;
+}
+
+size_t visible_len(const char *s) {
+  size_t len = 0;
+  const char *p = s;
+  while (*p) {
+    if (*p == '\033' && *(p + 1) == '[') {
+      p += 2;
+      while (*p && !((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')))
+        p++;
+      if (*p)
+        p++;
+    } else {
+      len++;
+      p++;
+    }
+  }
+  return len;
+}
+void get_shell_prompt(t_shell *shell) {
+
+  if (shell->prompt)
+    free(shell->prompt);
+
+  char hostname[256];
+  if (gethostname(hostname, sizeof(hostname)) == -1) {
+    perror("gethostname");
+  } else {
+    hostname[sizeof(hostname) - 1] = '\0';
+  }
+  char *dir = getcwd(NULL, 0);
+  if (!dir) {
+    perror("getcwd");
+    exit(1);
+  }
+  replace_home_dir(&dir);
+  char *user = getenv("USER");
+  size_t prompt_cap = strlen(dir) + strlen(user) + strlen(hostname) + 64;
+  shell->prompt = (char *)malloc(prompt_cap);
+  if (!shell->prompt) {
+    perror("malloc");
+    exit(1);
+  }
+  (shell->prompt)[0] = '\0';
+  snprintf(shell->prompt, prompt_cap,
+           "\033[1;37m%s@%s %s\033[0m:\033[0;37m%s\033[0m\033[1;37m$ \033[0m",
+           user, hostname, dir, shell->sh_name);
+  free(dir);
+
+  shell->prompt_len = visible_len(shell->prompt);
+}
 /**
  * @brief initialize shell state to null or calloc values
  * @param shell pointer to shell struct
@@ -201,6 +287,14 @@ static int push_def_aliases(t_alias_hashtable *ht) {
 int init_shell_state(t_shell *shell) {
 
   get_term_size(&shell->rows, &shell->cols);
+
+  shell->sh_name = (char *)malloc(4);
+  if (!shell->sh_name) {
+    perror("shell init: sh name malloc fail");
+    return -1;
+  }
+
+  shell->prompt = NULL;
 
   shell->intr = 0;
   shell->next_job_id = 1;
@@ -263,12 +357,6 @@ int init_shell_state(t_shell *shell) {
 
   shell->job_table_cap = INITIAL_JOB_TABLE_LENGTH;
   shell->job_count = 0;
-
-  shell->sh_name = (char *)malloc(sizeof(char) * 4);
-  if (!shell->sh_name) {
-    perror("shell init: sh name malloc fail");
-    return -1;
-  }
 
   if (!shell->is_interactive)
     shell->job_control_flag = 0;

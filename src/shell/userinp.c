@@ -6,34 +6,6 @@
  * @brief contains implementation of functions to read user input
  */
 
-/**
- * @brief handle read error
- * @return an int to read_status to know how to handle read fail
- * @param ssize_t bytes_read from functions
- * @param buf from functions
- *
- * If errno returns EINTR, EAGAIN, or EWOULDBLOCK, input loop continues
- * Else input loop returns -1, fatal error.
- */
-static int handle_read_error(char *buf, ssize_t bytes_read) {
-  if (bytes_read == 0) {
-    return 1;
-  }
-  if (errno == EINTR) {
-    if (sigwinch_flag) {
-      sigwinch_flag = 0;
-      return 2;
-    }
-    return 0;
-  } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-    return 0;
-  } else {
-    perror("readinp: fatal read error");
-    errno = EIO;
-    return -1;
-  }
-}
-
 int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
 
   ssize_t write_ret;
@@ -70,7 +42,8 @@ void get_term_size(int *rows, int *cols) {
  * function is called in the loop to check if the buffer needs to be reallocated
  * to handle a large capacity of input.
  */
-static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len) {
+static int handle_realloc_buf(char **buf, size_t *buf_cap,
+                              volatile size_t *buf_len) {
 
   if (!buf || !(*buf) || !buf_cap || !buf_len || *buf_cap <= 0)
     return 0; // bad pass
@@ -101,20 +74,82 @@ static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len) {
   return 1;
 }
 
-void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, int cmd_idx) {
+static void rndr_sgst(size_t cmd_len, size_t cmd_idx, t_dllnode *sgst) {
+  if (!sgst || cmd_idx != cmd_len)
+    return;
 
-  get_term_size(&shell->rows, &shell->cols);
+  char *s = sgst->strbg + cmd_len;
+  printf("\033[s");
+  printf("%s", COLOR_GRAY);
+  printf("%s", s);
+  printf("%s", COLOR_RESET);
+  printf("\033[u");
+}
 
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\r\x1b[J", 4, cmd);
-
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, cmd, cmd_len, cmd);
-
-  if (cmd_idx < (int)cmd_len) {
-    int move_back = (int)cmd_len - cmd_idx;
-    char move_seq[32];
-    int n = snprintf(move_seq, sizeof(move_seq), "\x1b[%dD", move_back);
-    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, move_seq, n, cmd);
+static void clr_sgst(size_t cmd_len, size_t cmd_idx, size_t sgst_len) {
+  char seq[32] = {0};
+  size_t cnt_shift = cmd_len - cmd_idx;
+  if (cnt_shift > 0) {
+    int n = snprintf(seq, sizeof(seq), "\x1b[%luD", cnt_shift);
+    HANDLE_WRITE_FAIL_FATAL(0, seq, n, NULL);
   }
+  HANDLE_WRITE_FAIL_FATAL(0, "\033[0J", 3, NULL);
+
+  if (cnt_shift > 0) {
+    int n = snprintf(seq, sizeof(seq), "\x1b[%luC", cnt_shift);
+    HANDLE_WRITE_FAIL_FATAL(0, seq, n, NULL);
+  }
+}
+
+static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
+                                 size_t cmd_idx, t_dllnode *pn) {
+
+  if (cmd_len == 0)
+    return NULL;
+  else if (cmd_idx != cmd_len)
+    return pn;
+
+  t_dllnode *h = shell->history.head;
+  while (h) {
+    if (strncmp(h->strbg, cmd, strlen(cmd)) == 0)
+      return h;
+    h = h->next;
+  }
+  return NULL;
+}
+
+void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
+                t_dllnode **suggestion) {
+  if (suggestion) {
+    *suggestion = search_history(shell, cmd, cmd_len, cmd_idx, *suggestion);
+  }
+  int rows, cols;
+  get_term_size(&rows, &cols);
+
+  static size_t last_rows_drawn = 0;
+  size_t old_rows = last_rows_drawn;
+
+  char seq[32];
+  if (old_rows > 0) {
+    int n = snprintf(seq, sizeof(seq), "\x1b[%luA", old_rows);
+    HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, seq, n, NULL);
+  }
+  HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, "\r\x1b[J", 4, NULL);
+
+  HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, shell->prompt, strlen(shell->prompt),
+                          NULL);
+  if (cmd_len > 0) {
+    HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, cmd, cmd_len, cmd);
+  }
+  if (suggestion && *suggestion) {
+    clr_sgst(cmd_len, cmd_idx, strlen((*suggestion)->strbg));
+    rndr_sgst(cmd_len, cmd_idx, *suggestion);
+  }
+
+  for (int i = cmd_idx; i < cmd_len; i++)
+    HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, "\033[D", 3, NULL);
+  size_t total_len = shell->prompt_len + cmd_len;
+  last_rows_drawn = (total_len > 0) ? (total_len - 1) / cols : 0;
 }
 
 /**
@@ -176,48 +211,24 @@ static int temp_switch_termios(t_shell *shell) {
   return tcsetattr(STDIN_FILENO, TCSANOW, &temptio);
 }
 
-static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
-                                 size_t cmd_idx, t_dllnode *pn) {
+static void tab_sngl(char *cmd, size_t cmd_len, size_t cmd_idx,
+                     t_shell *shell) {
+  // get_term_size(&shell->rows, &shell->cols);
+  // bool wrap = false;
+  // size_t written_row_len = 0;
+  // bool dir = false;
+  // for (int i = 0; i < cmd_len; i++) {
+  //   if (cmd[i] == ' ') {
+  //     dir = true;
+  //     break;
+  //   }
+  // }
+  // if (dir) {
 
-  if (cmd_len == 0 || cmd_idx != cmd_len)
-    return pn;
-
-  t_dllnode *h = shell->history.head;
-  while (h) {
-    if (strncmp(h->strbg, cmd, strlen(cmd)) == 0)
-      return h;
-    h = h->next;
-  }
-  return NULL;
+  // } else {
+  // }
 }
-
-static void clr_sgst(const size_t cmd_len, const size_t cmd_idx) {
-
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[s", 3, NULL);
-
-  size_t offset = cmd_len - cmd_idx;
-  for (size_t i = 0; i < offset; i++)
-    HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[C", 3, NULL);
-
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[K", 3, NULL);
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[u", 3, NULL);
-}
-
-static void render_suggestion(char *cmd, size_t cmd_len, size_t cmd_idx,
-                              t_dllnode *suggestion_node) {
-
-  if (!suggestion_node)
-    return;
-
-  clr_sgst(cmd_len, cmd_idx);
-
-  char *suggestion = suggestion_node->strbg + cmd_len;
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[38;5;8m", 10, NULL);
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, suggestion, strlen(suggestion), NULL);
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[0m", 4, NULL);
-
-  HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[u", 3, NULL);
-}
+static void tab_dbl(char *cmd, t_shell *shell) {}
 
 /**
  * @brief reads user input into cmd
@@ -241,55 +252,59 @@ char *read_user_inp(t_shell *shell) {
   }
   cmd[0] = '\0';
 
-  size_t cmd_len = 0;
-  int cmd_idx = 0;
+  volatile size_t cmd_len = 0;
+  volatile size_t cmd_idx = 0;
 
+  bool tab = false;
   while (1) {
 
+    redraw_cmd(shell, cmd, cmd_len, cmd_idx, &suggestion_node);
+
     if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len) == -1)
-      return NULL; // cmd freed in handle_realloc_buf
+      return NULL;
+    if (sigwinch_flag) {
+      sigwinch_flag = 0;
+      continue;
+    }
 
     char c = '\0';
-
-    ssize_t bytes_read = read(STDIN_FILENO, &c, 1);
-    int read_status = 0;
-
-    if (bytes_read <= 0) {
-      read_status = handle_read_error(cmd, bytes_read);
-      if (read_status == 0) {
+    while (read(0, &c, 1) < 0) {
+      if (errno == EINTR) {
+        if (sigwinch_flag) {
+          sigwinch_flag = 0;
+          continue;
+        }
         continue;
-      } else if (read_status == 2) {
-        redraw_cmd(shell, cmd, cmd_len, cmd_idx);
-      } else if (read_status == 1) {
-        break;
-      } else if (read_status == -1) {
+      } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        continue;
+      } else {
         free(cmd);
         return NULL;
       }
     }
 
-    if (cmd_len == 0 && cmd[0] == '\0') {
-      suggestion_node = NULL;
-      clr_sgst(cmd_len, cmd_idx);
+    if (c == '\t' && !tab) {
+      tab_sngl(cmd, cmd_len, cmd_idx, shell);
+      continue;
+    } else if (c == '\t') {
+      tab_dbl(cmd, shell);
+      continue;
     }
 
-    //  '\x1b'
-    if (c == 27) {
-
+    if (c == '\x1b') {
       temp_switch_termios(shell);
+      char seq_end[2] = {0};
 
-      char seq_end[3] = {0};
-
-      ssize_t seq_bytes = read(STDIN_FILENO, seq_end, 3);
-      int read_status_seq = 0;
-
-      if (seq_bytes <= 0) {
-        read_status_seq = handle_read_error(cmd, bytes_read);
-        if (read_status_seq == 0) {
+      while (read(0, &seq_end, 2) < 0) {
+        if (errno == EINTR) {
+          if (sigwinch_flag) {
+            sigwinch_flag = 0;
+            continue;
+          }
           continue;
-        } else if (read_status_seq == 1) {
-          break;
-        } else if (read_status_seq == -1) {
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          continue;
+        } else {
           free(cmd);
           return NULL;
         }
@@ -303,225 +318,109 @@ char *read_user_inp(t_shell *shell) {
         return cmd;
       }
 
-      if (seq_bytes > 0 && seq_end[0] == '[' && seq_end[1] == 'C') {
-        if (cmd_idx == cmd_len && suggestion_node) {
-          size_t sugg_len = strlen(suggestion_node->strbg);
-          if (sugg_len >= cmd_cap)
-            force_realloc_buf(&cmd, &cmd_cap, &sugg_len);
+      if (seq_end[0] == '[') {
+        switch (seq_end[1]) {
+        case 'A': {
+          if (!ptr && shell->history.head)
+            ptr = shell->history.head;
+          else if (!shell->history.head)
+            continue;
 
-          char *to_add = suggestion_node->strbg + cmd_idx;
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, to_add, strlen(to_add), cmd);
+          size_t n_cap = strlen(ptr->strbg) + 1;
+          if (n_cap > cmd_cap) {
+            if (force_realloc_buf(&cmd, &cmd_cap, &n_cap) == -1)
+              return NULL;
+          }
 
-          strcpy(cmd, suggestion_node->strbg);
-          cmd_idx = cmd_len = sugg_len;
+          strcpy(cmd, ptr->strbg);
+          cmd_idx = cmd_len = n_cap - 1;
+
+          ptr = ptr->next;
           continue;
         }
-      }
-
-      if (seq_bytes > 0 && seq_end[0] == '[') {
-        if (seq_end[1] == 'A') {
-
-          int i = cmd_idx;
-          while (cmd[i] != '\0') {
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[C", 3, cmd);
-            i++;
-          }
-          for (int k = 0; k < cmd_len; k++)
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
-
-          cmd_idx = cmd_len = 0;
-
-          if (ptr) {
-
-            size_t new_cap = strlen(ptr->strbg) + 1;
-            size_t min_cap = cmd_cap;
-
-            while (min_cap < new_cap + 1) {
-              min_cap *= BUF_GROWTH_FACTOR;
-            }
-
-            if (new_cap > cmd_cap) {
-              if (force_realloc_buf(&cmd, &cmd_cap, &min_cap) == -1)
-                return NULL; // cmd freed in realloc buf
-            }
-          }
-
-          if (ptr) {
-            strcpy(cmd, ptr->strbg);
-            cmd_idx = cmd_len = strlen(cmd);
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, cmd, cmd_len, cmd);
-            ptr = ptr->next;
-            continue;
-          } else {
+        case 'B': {
+          if (!ptr && shell->history.head)
             ptr = shell->history.head;
-            if (ptr) {
-              strcpy(cmd, ptr->strbg);
-              cmd_idx = cmd_len = strlen(cmd);
-              HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, cmd, cmd_len, cmd);
-              ptr = ptr->next;
-            }
+          else if (!shell->history.head)
             continue;
-          }
-        } else if (seq_end[1] == 'B') {
 
-          int i = cmd_idx;
-          while (cmd[i] != '\0') {
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[C", 3, cmd);
-            i++;
-          }
-          for (int k = 0; k < cmd_len; k++)
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
-          cmd_idx = cmd_len = 0;
-
-          if (ptr) {
-            size_t new_cap = strlen(ptr->strbg) + 1;
-            size_t min_cap = cmd_cap;
-
-            while (min_cap < new_cap + 1) {
-              min_cap *= BUF_GROWTH_FACTOR;
-            }
-
-            if (new_cap > cmd_cap) {
-              if (force_realloc_buf(&cmd, &cmd_cap, &min_cap) == -1)
-                return NULL; // cmd freed in
-            }
+          size_t n_cap = strlen(ptr->strbg) + 1;
+          if (n_cap > cmd_cap) {
+            if (force_realloc_buf(&cmd, &cmd_cap, &n_cap) == -1)
+              return NULL;
           }
 
-          if (ptr) {
-            strcpy(cmd, ptr->strbg);
-            cmd_idx = cmd_len = strlen(cmd);
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, cmd, cmd_len, cmd);
-            ptr = ptr->prev;
-            continue;
-          } else {
-            ptr = shell->history.head;
-            if (ptr) {
-              strcpy(cmd, ptr->strbg);
-              cmd_idx = cmd_len = strlen(cmd);
-              HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, cmd, cmd_len, cmd);
-              ptr = ptr->prev;
-            }
-            continue;
-          }
-        } else if (seq_end[1] == 'C') {
-          if (cmd_idx < cmd_len) {
-            char right[] = "\033[C";
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, right, strlen(right), cmd);
-            cmd_idx++;
-            continue;
-          } else if (suggestion_node) {
+          strcpy(cmd, ptr->strbg);
+          cmd_idx = cmd_len = n_cap - 1;
 
-            size_t sugg_len = strlen(suggestion_node->strbg);
+          ptr = ptr->next;
+          continue;
+        }
+        case 'C': {
+          if (cmd_idx == cmd_len && suggestion_node) {
+            size_t slen = strlen(suggestion_node->strbg);
 
-            if (sugg_len >= cmd_cap) {
-              if (force_realloc_buf(&cmd, &cmd_cap, &sugg_len) == -1)
+            if (cmd_cap < slen + 1) {
+              size_t new_cap = slen + 1;
+              if (force_realloc_buf(&cmd, &cmd_cap, &new_cap) == -1)
                 return NULL;
             }
 
-            char *to_add = suggestion_node->strbg + cmd_idx;
+            memcpy(cmd, suggestion_node->strbg, slen + 1);
+            cmd_idx = slen;
+            cmd_len = slen;
+          } else if (cmd_idx < cmd_len) {
+            cmd_idx++;
+          }
 
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, to_add, strlen(to_add), cmd);
-            strcpy(cmd, suggestion_node->strbg);
-            cmd_idx = cmd_len = sugg_len;
-            continue;
-          }
-        } else if (seq_end[1] == 'D') {
-          if (cmd_idx > 0) {
-            char left[] = "\033[D";
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, left, strlen(left), cmd);
-            cmd_idx--;
-            continue;
-          }
+          continue;
         }
+        case 'D': {
+          if (cmd_idx > 0) {
+            cmd_idx--;
+          }
+
+          continue;
+        }
+        default:
+          continue;
+        }
+      } else {
+        continue;
       }
     }
 
     if (c == '\b' || c == 127) {
 
-      if (cmd_idx > 0) {
-
-        if (cmd_idx < cmd_len) {
-
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
-
-          size_t count_shift_back = (cmd_len - cmd_idx);
-
-          memmove(&cmd[cmd_idx - 1], &cmd[cmd_idx], count_shift_back);
-
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, &cmd[cmd_idx - 1],
-                                  count_shift_back, cmd);
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\x1b[C", 3, cmd);
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
-
-          if (count_shift_back > 0) {
-            char move_cursor_back[MAX_COMMAND_LENGTH];
-            HANDLE_SNPRINTF_FAIL_FATAL(move_cursor_back, "\x1b[%zuD",
-                                       count_shift_back, cmd)
-            HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, move_cursor_back,
-                                    strlen(move_cursor_back), cmd);
-          }
-
-          cmd_idx--;
-          cmd_len--;
-          cmd[cmd_len] = '\0';
-        } else {
-          cmd_len--;
-          cmd_idx--;
-          cmd[cmd_len] = '\0';
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\b \b", 3, cmd);
-          HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, "\033[J", 3, cmd);
-        }
-        suggestion_node =
-            search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
-        render_suggestion(cmd, cmd_len, cmd_idx, suggestion_node);
+      if (cmd_idx == 0)
+        continue;
+      else if (cmd_idx < cmd_len && cmd_idx != 0) {
+        size_t count_shift_back = cmd_len - cmd_idx;
+        memmove(cmd + cmd_idx - 1, cmd + cmd_idx, count_shift_back);
       }
-
-      clr_sgst(cmd_len, cmd_idx);
-      suggestion_node =
-          search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
-      render_suggestion(cmd, cmd_len, cmd_idx, suggestion_node);
-      continue;
+      cmd_len--;
+      cmd_idx--;
+      cmd[cmd_len] = '\0';
     }
 
     if (c == '\n' || c == '\r') {
-      clr_sgst(cmd_len, cmd_idx);
+      printf("\033[0J");
+      fflush(stdout);
       break;
     }
-
-    if (cmd_cap < MAX_COMMAND_LENGTH - 1 && c != '\x1b' && c != '\b') {
-
-      clr_sgst(cmd_len, cmd_idx);
-
-      size_t count_to_shift = (cmd_len - cmd_idx);
+    if (cmd_cap < MAX_COMMAND_LENGTH - 1 && isprint(c)) {
+      size_t count_shift = cmd_len - cmd_idx;
       if (cmd_cap <= cmd_len + 1) {
-        size_t new_cap = cmd_cap * BUF_GROWTH_FACTOR;
-        if (force_realloc_buf(&cmd, &cmd_cap, &new_cap) == -1)
+        size_t n_cap = cmd_cap * BUF_GROWTH_FACTOR;
+        if (force_realloc_buf(&cmd, &cmd_cap, &n_cap) == -1)
           return NULL;
       }
 
-      memmove(&cmd[cmd_idx + 1], &cmd[cmd_idx], count_to_shift);
-      cmd[cmd_idx] = c;
-      cmd_idx++;
+      memmove(cmd + cmd_idx + 1, cmd + cmd_idx, count_shift);
+      cmd[cmd_idx++] = c;
       cmd_len++;
       cmd[cmd_len] = '\0';
       ptr = shell->history.head;
-
-      HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, &c, 1, cmd);
-
-      if (count_to_shift > 0) {
-
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, &cmd[cmd_idx], count_to_shift,
-                                cmd);
-
-        char move_cursor_back[32];
-        int n = snprintf(move_cursor_back, sizeof(move_cursor_back),
-                         "\x1b[%zuD", count_to_shift);
-        HANDLE_WRITE_FAIL_FATAL(STDIN_FILENO, move_cursor_back, n, cmd);
-      } else {
-        suggestion_node =
-            search_history(shell, cmd, cmd_len, cmd_idx, suggestion_node);
-        render_suggestion(cmd, cmd_len, cmd_idx, suggestion_node);
-      }
     }
   }
 

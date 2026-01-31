@@ -25,44 +25,6 @@ void cleanup_global_cmd_buf_ptr(void) {
     g_cmd_buf_ptr = NULL;
   }
 }
-
-static int replace_home_dir(char **buf) {
-
-  if (strncmp(*buf, "/home/", 6) != 0)
-    return -1;
-
-  char *replacement = strdup(*buf);
-  if (!replacement) {
-    perror("115: strdup malloc error");
-    return -1;
-  }
-
-  char *bufbuf = malloc(PATH_MAX);
-  if (!bufbuf) {
-    perror("121: bufbuf malloc error");
-    free(replacement);
-    return -1;
-  }
-  bufbuf[0] = '~';
-  bufbuf[1] = '\0';
-
-  char *part = strtok(replacement, "/"); // ""
-  part = strtok(NULL, "/");              // home
-
-  while ((part = strtok(NULL, "/")) != NULL) {
-    strcat(bufbuf, "/");
-    strcat(bufbuf, part);
-  }
-  for (int i = 0; i < strlen(*buf); i++)
-    (*buf)[i] = '\0'; ///< Clear buf
-  free(*buf);
-  *buf = strdup(bufbuf);
-  free(bufbuf);
-  free(replacement);
-
-  return 0;
-}
-
 static char *append_script_line(char *old_buf, const char *new_line) {
 
   size_t old_len = old_buf ? strlen(old_buf) : 0;
@@ -169,29 +131,14 @@ int main(int argc, char **argv) {
         tcsetpgrp(shell_state.tty_fd, shell_state.pgid);
       }
 
-      char hostname[256];
-      if (gethostname(hostname, sizeof(hostname)) == -1) {
-        perror("gethostname");
-      } else {
-        hostname[sizeof(hostname) - 1] = '\0';
-      }
-
       reset_terminal_mode(&shell_state);
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[?25h", 6, cmd_line_buf);
       if (write(shell_state.tty_fd, "\033[5 q", 5) == -1)
         perror("write");
 
-      char *dir = getcwd(NULL, 0);
-      if (!dir) {
-        perror("getcwd");
-        exit(1);
-      }
-      replace_home_dir(&dir);
-      char *user = getenv("USER");
-      printf(
-          "\n\033[1;37m%s@%s %s\033[0m:\033[0;37m%s\033[0m \033[1;37m$ \033[0m",
-          user, hostname, dir, shell_state.sh_name);
-      free(dir);
+      get_shell_prompt(&shell_state);
+      printf("\n%s", shell_state.prompt);
+      fflush(stdout);
 
       rawify(&shell_state);
       cmd_line_buf = read_user_inp(&shell_state);

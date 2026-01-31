@@ -1,6 +1,7 @@
 #ifndef USERINP_H
 #define USERINP_H
 
+#include "dirent.h"
 #include "shell.h"
 #include "sigtable_init.h"
 #include "terminal_control.h"
@@ -25,6 +26,8 @@
  * @brief initial length of line buffer before any realloc calls
  */
 #define INITIAL_COMMAND_LENGTH 1024
+#define COLOR_GRAY "\x1b[90m"
+#define COLOR_RESET "\x1b[0m"
 
 /**
  * @def MAX_COMMAND_LENGTH
@@ -38,11 +41,13 @@
  */
 #define BUF_GROWTH_FACTOR 2
 
+#define WRITE_LITERAL(fd, buf)                                                 \
+  HANDLE_WRITE_FAIL_FATAL(fd, buf, sizeof(buf) - 1, NULL)
+
 #define HANDLE_WRITE_FAIL_FATAL(fd, buf, len, bufptr)                          \
   if (handle_write_fail(fd, buf, len, bufptr) == -1) {                         \
     exit(EXIT_FAILURE);                                                        \
   }
-
 /**
  * @def HANDLE_SNPRINTF_FAIL_FATAL(fd, str, len, buffer_ptr)
  * @brief Handles snprintf failures as fatal errors
@@ -54,15 +59,6 @@
  * If snprintf fails, prints error, frees buffer if provided,
  * sets errno to EIO, and returns NULL.
  */
-#define HANDLE_SNPRINTF_FAIL_FATAL(src, fmt, arg, buffer_ptr)                  \
-  if (snprintf(src, sizeof(src), fmt, arg) < 0) {                              \
-    perror("readinp: snprintf fail");                                          \
-    /* assume fatal error, set errno */                                        \
-    errno = EIO;                                                               \
-    if (buffer_ptr)                                                            \
-      free(buffer_ptr);                                                        \
-    return NULL;                                                               \
-  }
 
 void get_term_size(int *rows, int *cols);
 

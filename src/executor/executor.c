@@ -95,8 +95,6 @@ int reap_sigchld_jobs(t_shell *shell) {
 static t_shell *g_shell_ptr = NULL;
 void set_global_shell_ptr_chld(t_shell *ptr) { g_shell_ptr = ptr; }
 
-void cleanup_global_cmd_buf_ptr(void); ///< defined in shell_driver.c
-
 static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
                        bool flow); ///< Forward declaration of function
 static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
@@ -324,7 +322,7 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
 
 static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
                              t_ast_n *pipeline, t_ht_node *builtin_ptr,
-                             char **argv) {
+                             char **argv, bool subshell) {
 
   if (!argv) {
     perror("argv prop err");
@@ -337,19 +335,43 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
     return -1;
   } // fork error.
 
+  if (job->pgid == -1)
+    job->pgid = pid;
+
   if (pid == 0) {
 
     init_ch_sigtable(&(shell->shell_sigtable));
+
+    if (!subshell) {
+      if (setpgid(0, job->pgid) < 0) {
+        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
+          perror("280: setpgid");
+          _exit(EXIT_FAILURE);
+        }
+      }
+    }
+
     set_global_shell_ptr_chld(shell);
 
     int exit_status = builtin_ptr->builtin_ptr(node, shell, argv);
     cleanup_argv(argv);
     _exit(exit_status);
-  } else {
-    int status;
-    waitpid(pid, &status, 0);
+  } else if (shell->job_control_flag) {
+
+    if (setpgid(pid, job->pgid) == -1) {
+      if (errno != EPERM && errno != EACCES && errno != ESRCH) {
+        perror("230: parent setpgid");
+        return -1;
+      }
+    }
+    t_process *process = make_process(pid);
+    if (!process)
+      return -1;
+    if (add_process_to_job(job, process) == -1) {
+      perror("fail to add process to job");
+      return -1;
+    }
     job->last_pid = pid;
-    shell->last_exit_status = WEXITSTATUS(status);
   }
 
   return pid;
@@ -393,7 +415,7 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
     cleanup_argv(argv);
     shell->last_exit_status = job->last_exit_status;
   } else {
-    exec_bg_builtin(node, shell, job, pipeline, builtin_imp, argv);
+    exec_bg_builtin(node, shell, job, pipeline, builtin_imp, argv, is_subshell);
     cleanup_argv(argv);
   }
 
