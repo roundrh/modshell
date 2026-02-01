@@ -42,11 +42,10 @@ void get_term_size(int *rows, int *cols) {
  * function is called in the loop to check if the buffer needs to be reallocated
  * to handle a large capacity of input.
  */
-static int handle_realloc_buf(char **buf, size_t *buf_cap,
-                              volatile size_t *buf_len) {
+static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len) {
 
   if (!buf || !(*buf) || !buf_cap || !buf_len || *buf_cap <= 0)
-    return 0; // bad pass
+    return -1;
 
   if (*buf_len < *buf_cap - 1)
     return 0; // no realloc needed
@@ -211,24 +210,246 @@ static int temp_switch_termios(t_shell *shell) {
   return tcsetattr(STDIN_FILENO, TCSANOW, &temptio);
 }
 
-static void tab_sngl(char *cmd, size_t cmd_len, size_t cmd_idx,
-                     t_shell *shell) {
-  // get_term_size(&shell->rows, &shell->cols);
-  // bool wrap = false;
-  // size_t written_row_len = 0;
-  // bool dir = false;
-  // for (int i = 0; i < cmd_len; i++) {
-  //   if (cmd[i] == ' ') {
-  //     dir = true;
-  //     break;
-  //   }
-  // }
-  // if (dir) {
-
-  // } else {
-  // }
+static bool firstwrd(char *cmd, size_t cmd_idx) {
+  for (size_t i = 0; i < cmd_idx; i++) {
+    if (isspace(cmd[i]))
+      return false;
+  }
+  return true;
 }
-static void tab_dbl(char *cmd, t_shell *shell) {}
+
+static int realloc_matches(char ***matches, size_t *matches_cap) {
+  size_t new_cap = *matches_cap * BUF_GROWTH_FACTOR;
+
+  char **new_matches = realloc(*matches, new_cap * sizeof(char *));
+  if (!new_matches) {
+    perror("realloc");
+    return -1;
+  }
+
+  for (size_t i = *matches_cap; i < new_cap; i++) {
+    new_matches[i] = NULL;
+  }
+  *matches = new_matches;
+  *matches_cap = new_cap;
+  return 0;
+}
+static void freematches(char **matches) {
+  for (size_t i = 0; matches[i]; i++) {
+    free(matches[i]);
+  }
+  free(matches);
+}
+static void printmatches(char **matches, size_t matches_len) {
+  int rows, cols;
+  get_term_size(&rows, &cols);
+
+  if (matches_len >= (size_t)rows - 1) {
+    char ans = '\0';
+    printf("\nmsh: list %lu matches? (y/n) ", matches_len);
+    fflush(stdout);
+    while (ans != 'y' && ans != 'n') {
+      if (read(STDIN_FILENO, &ans, 1) < 0) {
+        if (errno == EINTR)
+          continue;
+        return;
+      }
+    }
+    if (ans == 'n')
+      return;
+  }
+
+  size_t max_len = 0;
+  for (size_t i = 0; matches[i]; i++) {
+    size_t len = strlen(matches[i]);
+    if (len > max_len)
+      max_len = len;
+  }
+
+  int col_width = (int)max_len + 3;
+
+  if (col_width > cols)
+    col_width = cols;
+
+  int num_cols = cols / col_width;
+  if (num_cols == 0)
+    num_cols = 1;
+
+  printf("\n");
+  for (size_t i = 0; matches[i]; i++) {
+    printf("%-*s", col_width, matches[i]);
+    if ((i + 1) % num_cols == 0) {
+      printf("\n");
+    }
+  }
+  if (matches_len % num_cols != 0) {
+    printf("\n");
+  }
+}
+static void tab_sngl(char *cmd, size_t *cmd_len, size_t *cmd_idx,
+                     t_shell *shell) {
+
+  if (*cmd_len == 0 || *cmd_idx == 0) {
+    return;
+  }
+  DIR *d;
+  struct dirent *ent;
+  bool first = firstwrd(cmd, *cmd_idx);
+
+  size_t sfx_len = 0;
+  char *match_str = NULL;
+
+  if (first) {
+    char *p = getenv("PATH");
+    if (!p)
+      return;
+    char *path = strdup(p);
+    if (!path)
+      exit(1);
+
+    char **matches = (char **)calloc(sizeof(char *), 16);
+    size_t matches_len = 0;
+    size_t matches_cap = 16;
+    char *t = strtok(path, ":");
+    while (t) {
+      d = opendir(t);
+      if (!d) {
+        t = strtok(NULL, ":");
+        continue;
+      }
+      while ((ent = readdir(d)) != NULL) {
+        if (strncmp(cmd, ent->d_name, *cmd_idx) == 0) {
+          if (matches_len + 1 >= matches_cap &&
+              realloc_matches(&matches, &matches_cap) == -1) {
+            perror("realloc");
+            exit(1);
+          }
+          matches[matches_len++] = strdup(ent->d_name);
+          matches[matches_len] = NULL;
+        }
+      }
+      closedir(d);
+      t = strtok(NULL, ":");
+    }
+    if (matches_len == 1) {
+      match_str = matches[0];
+      sfx_len = strlen(match_str) - *cmd_idx;
+
+      size_t required_cap = *cmd_len + sfx_len + 1;
+      if (required_cap < MAX_COMMAND_LENGTH) {
+        memmove(cmd + *cmd_idx + sfx_len, cmd + *cmd_idx,
+                *cmd_len - *cmd_idx + 1);
+        memcpy(cmd + *cmd_idx, match_str + *cmd_idx, sfx_len);
+        *cmd_idx += sfx_len;
+        *cmd_len += sfx_len;
+      }
+    } else if (matches_len > 1) {
+      printmatches(matches, matches_len);
+    }
+    freematches(matches);
+    free(path);
+  } else {
+    size_t lst = 0;
+    for (size_t i = 0; i < *cmd_idx; i++) {
+      if (cmd[i] == ' ') {
+        lst = i;
+      }
+    }
+    bool cwd = true;
+    for (size_t i = lst + 1; i < *cmd_idx; i++) {
+      if (cmd[i] == '/' && (i == 0 || cmd[i - 1] != '\\')) {
+        cwd = false;
+        break;
+      }
+    }
+    if (cwd) {
+      char *p = &(cmd[lst + 1]);
+      size_t p_len = *cmd_idx - (lst + 1);
+      char **matches = (char **)calloc(sizeof(char *), 16);
+      size_t matches_len = 0;
+      size_t matches_cap = 16;
+      d = opendir(".");
+      if (d) {
+        while ((ent = readdir(d)) != NULL) {
+          if (strncmp(p, ent->d_name, p_len) == 0) {
+            if (matches_len + 1 >= matches_cap &&
+                realloc_matches(&matches, &matches_cap) == -1) {
+              perror("realloc");
+              exit(1);
+            }
+            matches[matches_len++] = strdup(ent->d_name);
+            matches[matches_len] = NULL;
+          }
+        }
+        closedir(d);
+      }
+      if (matches_len == 1) {
+        match_str = matches[0];
+        sfx_len = strlen(match_str) - p_len;
+
+        if (*cmd_len + sfx_len + 1 < MAX_COMMAND_LENGTH) {
+          memmove(cmd + *cmd_idx + sfx_len, cmd + *cmd_idx,
+                  *cmd_len - *cmd_idx + 1);
+          memcpy(cmd + *cmd_idx, match_str + p_len, sfx_len);
+          *cmd_idx += sfx_len;
+          *cmd_len += sfx_len;
+        }
+      } else if (matches_len > 1) {
+        printmatches(matches, matches_len);
+      }
+      freematches(matches);
+    } else {
+      char *ptr = &cmd[lst + 1];
+      ssize_t k = -1;
+      for (size_t i = lst + 1; i < *cmd_idx; i++) {
+        if (cmd[i] == '/' && (i == 0 || cmd[i - 1] != '\\'))
+          k = i;
+      }
+      if (k == -1)
+        return;
+
+      char *dir_path = strndup(ptr, (k - (lst + 1)) + 1);
+      d = opendir(dir_path);
+      if (!d) {
+        free(dir_path);
+        return;
+      }
+      char *prfx = &cmd[k + 1];
+      size_t prfx_len = *cmd_idx - (k + 1);
+      char **matches = (char **)calloc(sizeof(char *), 16);
+      size_t matches_len = 0;
+      size_t matches_cap = 16;
+      while ((ent = readdir(d)) != NULL) {
+        if (strncmp(prfx, ent->d_name, prfx_len) == 0) {
+          if (matches_len + 1 >= matches_cap &&
+              realloc_matches(&matches, &matches_cap) == -1) {
+            perror("realloc");
+            exit(1);
+          }
+          matches[matches_len++] = strdup(ent->d_name);
+          matches[matches_len] = NULL;
+        }
+      }
+      closedir(d);
+      if (matches_len == 1) {
+        match_str = matches[0];
+        sfx_len = strlen(match_str) - prfx_len;
+
+        if (*cmd_len + sfx_len + 1 < MAX_COMMAND_LENGTH) {
+          memmove(cmd + *cmd_idx + sfx_len, cmd + *cmd_idx,
+                  *cmd_len - *cmd_idx + 1);
+          memcpy(cmd + *cmd_idx, match_str + prfx_len, sfx_len);
+          *cmd_idx += sfx_len;
+          *cmd_len += sfx_len;
+        }
+      } else if (matches_len > 1) {
+        printmatches(matches, matches_len);
+      }
+      freematches(matches);
+      free(dir_path);
+    }
+  }
+}
 
 /**
  * @brief reads user input into cmd
@@ -252,8 +473,8 @@ char *read_user_inp(t_shell *shell) {
   }
   cmd[0] = '\0';
 
-  volatile size_t cmd_len = 0;
-  volatile size_t cmd_idx = 0;
+  size_t cmd_len = 0;
+  size_t cmd_idx = 0;
 
   bool tab = false;
   while (1) {
@@ -284,10 +505,12 @@ char *read_user_inp(t_shell *shell) {
     }
 
     if (c == '\t' && !tab) {
-      tab_sngl(cmd, cmd_len, cmd_idx, shell);
+      tab_sngl(cmd, &cmd_len, &cmd_idx, shell);
+      tab = true;
       continue;
     } else if (c == '\t') {
-      tab_dbl(cmd, shell);
+      // tab_dbl(cmd, cmd_idx, shell);
+      tab = false;
       continue;
     }
 
@@ -321,9 +544,12 @@ char *read_user_inp(t_shell *shell) {
       if (seq_end[0] == '[') {
         switch (seq_end[1]) {
         case 'A': {
-          if (!ptr && shell->history.head)
+
+          if (!ptr)
             ptr = shell->history.head;
-          else if (!shell->history.head)
+          else if (ptr->next)
+            ptr = ptr->next;
+          else
             continue;
 
           size_t n_cap = strlen(ptr->strbg) + 1;
@@ -334,14 +560,15 @@ char *read_user_inp(t_shell *shell) {
 
           strcpy(cmd, ptr->strbg);
           cmd_idx = cmd_len = n_cap - 1;
-
-          ptr = ptr->next;
           continue;
         }
         case 'B': {
-          if (!ptr && shell->history.head)
+
+          if (!ptr)
             ptr = shell->history.head;
-          else if (!shell->history.head)
+          else if (ptr->prev)
+            ptr = ptr->prev;
+          else
             continue;
 
           size_t n_cap = strlen(ptr->strbg) + 1;
@@ -352,8 +579,6 @@ char *read_user_inp(t_shell *shell) {
 
           strcpy(cmd, ptr->strbg);
           cmd_idx = cmd_len = n_cap - 1;
-
-          ptr = ptr->next;
           continue;
         }
         case 'C': {
@@ -404,6 +629,8 @@ char *read_user_inp(t_shell *shell) {
     }
 
     if (c == '\n' || c == '\r') {
+      for (size_t i = cmd_idx; i <= cmd_len; i++)
+        printf("\033[C");
       printf("\033[0J");
       fflush(stdout);
       break;
@@ -420,7 +647,7 @@ char *read_user_inp(t_shell *shell) {
       cmd[cmd_idx++] = c;
       cmd_len++;
       cmd[cmd_len] = '\0';
-      ptr = shell->history.head;
+      tab = false;
     }
   }
 
