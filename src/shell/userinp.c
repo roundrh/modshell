@@ -429,6 +429,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
 
   size_t s = 0;
   size_t row_offset = 0;
+
   while (1) {
 
     redraw_cmd(shell, cmd, *cmd_len, *cmd_idx, NULL);
@@ -437,11 +438,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
     int rows, cols;
     get_term_size(&rows, &cols);
 
-    /* size_t wraps to a bfn when rows < 2 */
     size_t v_rws = (rows > 2) ? rows - 2 : 1;
-
-    if (row_offset + v_rws > c.count)
-      row_offset = (c.count > v_rws) ? c.count - v_rws : 0;
 
     size_t max_l = 0;
     for (size_t i = 0; i < c.count; i++) {
@@ -449,14 +446,21 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
       if (l > max_l)
         max_l = l;
     }
+
     int col_w = (int)max_l + 2;
     int n_cols = cols / col_w;
     if (n_cols == 0)
       n_cols = 1;
 
+    size_t items_per_page = v_rws * n_cols;
+
+    if (row_offset + items_per_page > c.count)
+      row_offset = (c.count > items_per_page) ? c.count - items_per_page : 0;
+
     printf("\n");
+
     size_t start = row_offset;
-    size_t end = row_offset + v_rws;
+    size_t end = row_offset + items_per_page;
     if (end > c.count)
       end = c.count;
 
@@ -468,18 +472,20 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
       } else {
         printf("%-*s", col_w, c.matches[i]);
       }
+
       printed++;
-      if (printed == n_cols) {
+      if (printed == (size_t)n_cols) {
         printf("\n");
         printed = 0;
       }
     }
-    if (printed != 0) {
+
+    if (printed != 0)
       printf("\n");
-    }
 
     size_t vis_items = end - start;
     size_t mov_lines = (vis_items + n_cols - 1) / n_cols;
+
     printf("\x1b[%dA\r", (int)mov_lines + 1);
     for (size_t i = 0; i < shell->prompt_len + *cmd_idx; i++)
       printf("\x1b[C");
@@ -489,10 +495,10 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
       if (errno != EINTR)
         exit(1);
     }
+
     if (r == '\t') {
       s = (s + 1) % c.count;
-
-      if (s >= row_offset + v_rws)
+      if (s >= row_offset + items_per_page)
         row_offset++;
     } else if (r == '\r' || r == '\n') {
       append_completion(cmd, cmd_len, cmd_idx, c.matches[s], c.prefix_len);
@@ -507,36 +513,35 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
           exit(1);
       }
       tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.new_term_settings);
+
       if (seq[0] == '[') {
         switch (seq[1]) {
         case 'A':
-          if (s < n_cols)
+          if (s < (size_t)n_cols)
             s = c.count - (c.count % n_cols ? c.count % n_cols : n_cols);
           else
             s -= n_cols;
 
           if (s < row_offset)
-            row_offset = (s >= n_cols) ? s - n_cols : 0;
+            row_offset = (s >= (size_t)n_cols) ? s - n_cols : 0;
           break;
+
         case 'B':
           s = (s + n_cols) % c.count;
-
-          if (s >= row_offset + v_rws)
+          if (s >= row_offset + items_per_page)
             row_offset += n_cols;
           break;
+
         case 'C':
           s = (s + 1) % c.count;
-
-          if (s >= row_offset + v_rws)
+          if (s >= row_offset + items_per_page)
             row_offset++;
           break;
+
         case 'D':
           s = (s == 0) ? c.count - 1 : s - 1;
-
           if (s < row_offset)
             row_offset = s;
-          break;
-        default:
           break;
         }
       } else {
@@ -545,6 +550,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
     } else {
       break;
     }
+
     printf("\033[J");
   }
 
