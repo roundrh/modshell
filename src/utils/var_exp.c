@@ -849,7 +849,6 @@ static char *expand_tilde(char *src) {
     return NULL;
 
   const char *hdir = pw->pw_dir;
-
   if (!hdir)
     return NULL;
 
@@ -1355,11 +1354,10 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
   size_t l_cap = BUFFER_INITIAL_LEN;
   cmd_line[0] = '\0';
 
-  int sub_depth = 1;
-  int arith_depth = 0;
+  int paren_depth = 1;
   idx++;
   size_t w = 0;
-  while ((sub_depth > 0 || arith_depth > 0) && idx < slen) {
+  while (paren_depth > 0 && idx < slen) {
     if (w + 1 >= l_cap) {
       if (realloc_buf(&cmd_line, &l_cap) == -1) {
         free(cmd_line);
@@ -1367,40 +1365,12 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
       }
     }
 
-    if (idx + 2 < slen && src[idx] == '$' && src[idx + 1] == '(' &&
-        src[idx + 2] == '(') {
-      arith_depth++;
-      cmd_line[w++] = src[idx++];
-      cmd_line[w++] = src[idx++];
-      cmd_line[w++] = src[idx++];
-      continue;
-    }
-
-    if (idx + 1 < slen && src[idx] == '$' && src[idx + 1] == '(') {
-      sub_depth++;
-      cmd_line[w++] = src[idx++];
-      cmd_line[w++] = src[idx++];
-      continue;
-    }
-
-    if (arith_depth > 0 && idx + 1 < slen && src[idx] == ')' &&
-        src[idx + 1] == ')') {
-      arith_depth--;
-      cmd_line[w++] = src[idx++];
-      cmd_line[w++] = src[idx++];
-      continue;
-    }
-
-    if (src[idx] == ')') {
-      if (arith_depth > 0) {
-        cmd_line[w++] = src[idx++];
-      } else {
-        sub_depth--;
-        if (sub_depth == 0)
-          break;
-        cmd_line[w++] = src[idx++];
-      }
-      continue;
+    if (src[idx] == '(') {
+      paren_depth++;
+    } else if (src[idx] == ')') {
+      paren_depth--;
+      if (paren_depth == 0)
+        break;
     }
 
     cmd_line[w++] = src[idx++];
