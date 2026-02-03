@@ -25,6 +25,9 @@
  */
 typedef struct shell_s {
 
+  char **argv;
+  int argc;
+
   int is_interactive;
   int job_control_flag;
 

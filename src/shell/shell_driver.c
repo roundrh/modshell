@@ -40,6 +40,28 @@ static char *append_script_line(char *old_buf, const char *new_line) {
   return new_buf;
 }
 
+void make_argl(t_shell *shell, int argc, char **argv) {
+
+  if (argc <= 2) {
+    shell->argc = 0;
+    shell->argv = NULL;
+    return;
+  }
+
+  shell->argc = argc - 2;
+
+  shell->argv = malloc(sizeof(char *) * (shell->argc + 1));
+  if (!shell->argv) {
+    perror("malloc argl");
+    exit(1);
+  }
+
+  for (int i = 0; i < shell->argc; i++) {
+    shell->argv[i] = argv[i + 2];
+  }
+  shell->argv[shell->argc] = NULL;
+}
+
 int main(int argc, char **argv) {
 
   t_shell shell_state;
@@ -55,6 +77,7 @@ int main(int argc, char **argv) {
     perror("shell state init fatal fail");
     exit(1);
   }
+  make_argl(&shell_state, argc, argv);
 
   if (argc > 1) {
 

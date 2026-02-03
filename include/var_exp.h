@@ -112,6 +112,8 @@ char *getenv_local(char **env, const char *var_name);
  */
 char *expand_exit_status(t_shell *shell, const char *src, size_t *i);
 
+char *expand_args(t_shell *shell, const char *src, size_t *i);
+
 /**
  * @brief expands "??" pid of shell (shell->pgid).
  */

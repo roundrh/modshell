@@ -63,6 +63,16 @@
  */
 extern char **environ;
 
+// typedef struct s_env_entry {
+//
+//   char *name;
+//   char *val;
+//   long num;
+//   bool exported;
+//   bool has_num;
+//
+// } t_env_entry;
+
 void get_shell_prompt(t_shell *shell);
 /**
  * @def init_shell_state(t_shell* shell)

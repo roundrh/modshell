@@ -1,4 +1,5 @@
 #include "var_exp.h"
+#include <stdlib.h>
 
 static const t_exp_map g_jump_table[] = {
     {"?", expand_exit_status}, // $?
@@ -6,6 +7,9 @@ static const t_exp_map g_jump_table[] = {
     {"((", expand_arith},      // $((
     {"(", expand_subshell},    // $(
     {"{", expand_braces},      // ${
+    {"@", expand_args},        // $@
+    {"*", expand_args},        // @*
+    {"#", expand_args},        // $#
     {0, NULL}                  // Null terminator
 };
 
@@ -135,6 +139,14 @@ static void cleanup_argv(char **argv) {
 
   free(argv);
 }
+static void cleanup_splits(char **argv) {
+  if (argv == NULL)
+    return;
+
+  if (argv[0] != NULL)
+    free(argv[0]);
+  free(argv);
+}
 
 static char *get_ifs(t_shell *shell) {
 
@@ -149,69 +161,77 @@ static char *get_ifs(t_shell *shell) {
 static int is_ifs_whitespace(char c) {
   return c == ' ' || c == '\t' || c == '\n';
 }
-
-static char **separate_ifs(t_shell *shell, const char *src) {
-
-  char *ifs = get_ifs(shell);
-
-  size_t cap = 8, argc = 0;
-  char **argv = calloc(cap, sizeof(char *));
-  if (!argv) {
-    perror("calloc");
-    free(ifs);
-    return NULL;
-  }
-
-  if (ifs[0] == '\0') {
-    argv[0] = strdup(src);
-    argv[1] = NULL;
-    free(ifs);
-    return argv;
-  }
-
+static size_t count_sep(const char *src, unsigned char *sep) {
+  size_t count = 0;
   const char *p = src;
 
-  while (*p && strchr(ifs, *p) && is_ifs_whitespace(*p)) {
+  while (*p && sep[(unsigned char)*p] && is_ifs_whitespace(*p))
     p++;
-  }
+
+  if (!*p)
+    return 0;
 
   while (*p) {
-
-    if (argc + 1 > cap) {
-      cap *= BUF_GROWTH_FACTOR;
-      char **new_argv = realloc(argv, cap * sizeof(char *));
-      if (!new_argv) {
-        perror("realloc");
-        cleanup_argv(argv);
-        return NULL;
-      }
-      argv = new_argv;
-    }
-
-    const char *start = p;
-
-    while (*p && !strchr(ifs, *p))
+    count++;
+    while (*p && !sep[(unsigned char)*p])
       p++;
-
-    argv[argc++] = strndup(start, p - start);
-
     if (!*p)
       break;
 
     if (!is_ifs_whitespace(*p)) {
       p++;
-      if (*p == '\0' || strchr(ifs, *p))
-        argv[argc++] = strdup("");
+      if (*p == '\0' || sep[(unsigned char)*p])
+        count++;
     } else {
-      while (*p && strchr(ifs, *p) && is_ifs_whitespace(*p))
+      while (*p && sep[(unsigned char)*p] && is_ifs_whitespace(*p))
         p++;
+    }
+  }
+  return count;
+}
+static char **separate_ifs(t_shell *shell, const char *src) {
+
+  char *ifs = get_ifs(shell);
+  unsigned char sep[256] = {0};
+  for (int i = 0; ifs[i]; i++)
+    sep[(unsigned char)ifs[i]] = 1;
+
+  size_t m = count_sep(src, sep);
+  char **argv = malloc(sizeof(char *) * (m + 1));
+  if (!argv)
+    return NULL;
+
+  char *sc = strdup(src);
+  char *p = sc;
+  size_t argc = 0;
+
+  while (*p && sep[(unsigned char)*p] && is_ifs_whitespace(*p))
+    p++;
+
+  while (*p) {
+
+    argv[argc++] = p;
+    while (*p && !sep[(unsigned char)*p])
+      p++;
+
+    if (!*p)
+      break;
+    char delimiter = *p;
+    *p = '\0';
+    p++;
+
+    if (is_ifs_whitespace(delimiter)) {
+      while (*p && sep[(unsigned char)*p] && is_ifs_whitespace(*p))
+        p++;
+    } else {
+      if (!*p || sep[(unsigned char)*p]) {
+        argv[argc++] = p;
+      }
     }
   }
 
   argv[argc] = NULL;
   free(ifs);
-  ifs = NULL;
-
   return argv;
 }
 static char *strip_quotes(const char *src) {
@@ -339,6 +359,10 @@ static char *make_word(const t_token *tokens, size_t *idx,
 }
 
 static t_exp_handler find_handler(const char *c) {
+
+  if (isdigit(*c))
+    return expand_args;
+
   for (int i = 0; g_jump_table[i].trigger; i++) {
     size_t tlen = strlen(g_jump_table[i].trigger);
     if (strncmp(g_jump_table[i].trigger, c, tlen) == 0)
@@ -413,6 +437,89 @@ static int expand_glob(char ***argv) {
   free(*argv);
   *argv = new_argv;
   return 0;
+}
+
+char *expand_args(t_shell *shell, const char *src, size_t *i) {
+
+  if (isdigit(src[*i])) {
+    char r[32];
+    int m = 0;
+
+    while (isdigit(src[*i]) && m < 31) {
+      r[m++] = src[(*i)++];
+    }
+    r[m] = '\0';
+
+    int s = atoi(r);
+    if (s >= 1 && s <= shell->argc)
+      return strdup(shell->argv[s - 1]);
+
+    return NULL;
+  }
+
+  char *r;
+  size_t n;
+  int k;
+
+  (*i)++;
+
+  switch (src[*i - 1]) {
+  case '*':
+    n = 0;
+    for (k = 0; k < shell->argc; k++)
+      n += strlen(shell->argv[k]) + 1;
+
+    r = malloc(n + 3);
+    if (!r)
+      return NULL;
+
+    char *p = r;
+    *p++ = '"';
+
+    for (k = 0; k < shell->argc; k++) {
+      size_t len = strlen(shell->argv[k]);
+      memcpy(p, shell->argv[k], len);
+      p += len;
+      *p++ = ' ';
+    }
+
+    if (*(p - 1) == ' ')
+      p--;
+
+    *p++ = '"';
+    *p = '\0';
+    return r;
+
+  case '@':
+    n = 0;
+    for (k = 0; k < shell->argc; k++)
+      n += strlen(shell->argv[k]) + 1;
+
+    r = malloc(n + 1);
+    if (!r)
+      return NULL;
+
+    r[0] = '\0';
+    for (k = 0; k < shell->argc; k++) {
+      strcat(r, shell->argv[k]);
+      strcat(r, " ");
+    }
+
+    if (n && r[n - 1] == ' ')
+      r[n - 1] = '\0';
+
+    return r;
+
+  case '#':
+    r = malloc(32);
+    if (!r)
+      return NULL;
+
+    snprintf(r, 32, "%d", shell->argc);
+    return r;
+  }
+
+  return NULL;
 }
 
 char *expand_pid(t_shell *shell, const char *src, size_t *i) {
@@ -1335,17 +1442,21 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
     setpgid(pid, pid);
 
     close(fds[1]);
-    char c = '\0';
     char *buf = (char *)malloc(BUFFER_INITIAL_LEN);
     if (!buf) {
       perror("buf fatal");
       free(cmd_line);
     }
     size_t buf_cap = BUFFER_INITIAL_LEN, buf_size = 0;
-    while (read(fds[0], &c, 1) > 0) {
+    char tmp[8192];
+    ssize_t n;
 
-      if (buf_size + 1 > buf_cap) {
-        if (realloc_buf(&buf, &buf_cap) == -1) {
+    while ((n = read(fds[0], tmp, sizeof(tmp))) > 0) {
+      if (buf_size + n + 1 > buf_cap) {
+        while (buf_size + n + 1 > buf_cap)
+          buf_cap *= 2;
+        char *nbuf = realloc(buf, buf_cap);
+        if (!nbuf) {
           free(buf);
           free(cmd_line);
           kill(-pid, SIGKILL);
@@ -1353,10 +1464,13 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
             ;
           return NULL;
         }
+        buf = nbuf;
       }
 
-      buf[buf_size++] = c;
+      memcpy(buf + buf_size, tmp, n);
+      buf_size += n;
     }
+
     buf[buf_size] = '\0';
     close(fds[0]);
 
@@ -1543,7 +1657,7 @@ static char **expand_fields(t_shell *shell, char **src_str, int *depth) {
           while (buffer_size + s0_len + 1 > buffer_cap) {
             if (realloc_buf(&buffer, &buffer_cap) == -1) {
               perror("realloc buf s0");
-              cleanup_argv(splits);
+              cleanup_splits(splits);
               cleanup_argv(fields);
               free(buffer);
               return NULL;
@@ -1562,7 +1676,7 @@ static char **expand_fields(t_shell *shell, char **src_str, int *depth) {
             if (!buffer) {
               perror("391: realloc buf");
               cleanup_argv(fields);
-              cleanup_argv(splits);
+              cleanup_splits(splits);
               return NULL;
             }
 
@@ -1570,7 +1684,7 @@ static char **expand_fields(t_shell *shell, char **src_str, int *depth) {
             buffer_size = buffer_cap - 1;
           }
         }
-        cleanup_argv(splits);
+        cleanup_splits(splits);
       }
     } else {
       buffer[buffer_size++] = src[i++];
