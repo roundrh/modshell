@@ -1891,9 +1891,10 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *tokens,
 
   while (idx < segment_len) {
 
-    /* this has to change - POSIX allows redir at the start of cmds */
-    if (redir_tok_found(&tokens[idx]))
-      break;
+    if (redir_tok_found(&tokens[idx])) {
+      idx += 2;
+      continue;
+    }
 
     char *str = make_word(tokens, &idx, segment_len);
     if (!str) {

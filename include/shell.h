@@ -2,6 +2,7 @@
 #define SHELL_H
 
 #include "alias_ht.h"
+#include "arena.h"
 #include "ast.h"
 #include "builtins_ht.h"
 #include "dll.h"

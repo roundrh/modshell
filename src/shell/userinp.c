@@ -134,27 +134,23 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   static size_t last_rows_drawn = 0;
   size_t old_rows = last_rows_drawn;
 
-  char seq[32];
-  if (old_rows > 0) {
-    int n = snprintf(seq, sizeof(seq), "\x1b[%luA", old_rows);
-    HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, seq, n, NULL);
-  }
-  HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, "\r\x1b[J", 4, NULL);
+  if (old_rows > 0)
+    printf("\033[%luA", old_rows);
 
-  HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, shell->prompt, strlen(shell->prompt),
-                          NULL);
-  if (cmd_len > 0) {
-    HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, cmd, cmd_len, cmd);
-  }
+  printf("\r\x1b[J");
+  printf("%s", shell->prompt);
+  if (cmd_len > 0)
+    printf("%s", cmd);
+
   if (suggestion && *suggestion) {
     clr_sgst(cmd_len, cmd_idx, strlen((*suggestion)->strbg));
     rndr_sgst(cmd_len, cmd_idx, *suggestion);
   }
-
   for (int i = cmd_idx; i < cmd_len; i++)
-    HANDLE_WRITE_FAIL_FATAL(STDOUT_FILENO, "\033[D", 3, NULL);
+    printf("\033[D");
+
   size_t total_len = shell->prompt_len + cmd_len;
-  last_rows_drawn = (total_len > 0) ? (total_len - 1) / cols : 0;
+  last_rows_drawn = (total_len - 1) / cols;
 }
 
 /**
