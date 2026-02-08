@@ -571,11 +571,7 @@ char *read_user_inp(t_shell *shell) {
   size_t tab_rws = 0;
 
   size_t cmd_cap = INITIAL_COMMAND_LENGTH;
-  char *cmd = (char *)malloc(sizeof(char) * INITIAL_COMMAND_LENGTH);
-  if (!cmd) {
-    perror("malloc fail: buf read user inp");
-    return NULL;
-  }
+  char *cmd = (char *)arena_alloc(&shell->arena, INITIAL_COMMAND_LENGTH);
   cmd[0] = '\0';
 
   size_t cmd_len = 0;

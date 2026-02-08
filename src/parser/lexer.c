@@ -1,12 +1,12 @@
 #include "lexer.h"
 
-int init_token_stream(t_token_stream *token_stream) {
+int init_token_stream(t_token_stream *token_stream, t_arena *a) {
 
   token_stream->tokens =
-      (t_token *)malloc(INITIAL_TOKS_ARR_CAP * sizeof(t_token));
+      (t_token *)arena_alloc(a, INITIAL_TOKS_ARR_CAP * sizeof(t_token));
   if (token_stream->tokens == NULL) {
-    perror("fatal malloc init tokens arr");
-    return -1;
+    perror("malloc");
+    exit(12);
   }
   token_stream->tokens_arr_cap = INITIAL_TOKS_ARR_CAP;
   for (size_t i = 0; i < INITIAL_TOKS_ARR_CAP; i++) {
@@ -107,10 +107,11 @@ static int check_realloc_toks_arr(t_token_stream *ts, size_t tok_count) {
     return 0;
 
   size_t new_cap = (ts->tokens_arr_cap) * BUF_GROWTH_FACTOR;
-  t_token *new_toks_arr = realloc(ts->tokens, new_cap * sizeof(t_token));
+  t_token *new_toks_arr =
+      (t_token *)realloc(ts->tokens, new_cap * sizeof(t_token));
   if (!new_toks_arr) {
-    perror("fatal realloc");
-    return -1;
+    perror("malloc");
+    exit(12);
   }
 
   ts->tokens = new_toks_arr;
@@ -154,7 +155,7 @@ static bool should_alias(t_token_stream *ts, size_t i) {
 }
 
 static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
-                              t_token_stream *ts) {
+                              t_token_stream *ts, t_arena *a) {
   if (!cmd_line_buf || !*cmd_line_buf || ts->tokens_arr_len == 0 || !aliases)
     return 0;
 
@@ -166,7 +167,6 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
     char *name = strndup(ts->tokens[i].start, ts->tokens[i].len);
     if (name[0] == '\\') {
       free(name);
-      name = NULL;
       continue;
     }
 
@@ -191,8 +191,8 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
       size_t alias_len = strlen(alias_val);
       size_t suffix_len = strlen(ts->tokens[i].start + ts->tokens[i].len);
 
-      char *new_buf =
-          malloc(prefix_len + alias_len + (size_t)circular + suffix_len + 1);
+      char *new_buf = arena_alloc(a, prefix_len + alias_len + (size_t)circular +
+                                         suffix_len + 1);
       if (!new_buf)
         return -1;
 
@@ -206,7 +206,6 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
       strcpy(new_buf + prefix_len + (size_t)circular + alias_len,
              ts->tokens[i].start + ts->tokens[i].len);
 
-      free(*cmd_line_buf);
       *cmd_line_buf = new_buf;
 
       free(name);
@@ -220,7 +219,7 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop
  * cond cmd_buf[i+1] can be '\0' but never UB*/
 int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
-                     t_alias_hashtable *aliases, int depth) {
+                     t_alias_hashtable *aliases, int depth, t_arena *a) {
 
   /* alias depth */
   if (depth > 10) {
@@ -239,9 +238,7 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   char *cmd_buf = *cmd_line_buf;
   while (cmd_buf[i] != '\0') {
 
-    if (check_realloc_toks_arr(token_stream, token_count) == -1) {
-      return -1;
-    }
+    check_realloc_toks_arr(token_stream, token_count);
 
     if (!in_single_quote && !in_double_quote && cmd_buf[i] == '\'') {
       in_single_quote = true;
@@ -310,31 +307,14 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   }
   token_stream->tokens_arr_len = token_count;
 
-  int expanded = expand_alias_token(cmd_line_buf, aliases, token_stream);
+  int expanded = expand_alias_token(cmd_line_buf, aliases, token_stream, a);
   if (expanded < 0)
     return -1;
 
   if (expanded == 1) {
-    cleanup_token_stream(token_stream);
-    if (init_token_stream(token_stream) == -1)
-      return -1;
-
-    return lex_command_line(cmd_line_buf, token_stream, aliases, depth + 1);
+    init_token_stream(token_stream, a);
+    return lex_command_line(cmd_line_buf, token_stream, aliases, depth + 1, a);
   }
-
-  return 0;
-}
-
-int cleanup_token_stream(t_token_stream *token_stream) {
-
-  if (!token_stream)
-    return 0;
-
-  if (token_stream->tokens)
-    free(token_stream->tokens);
-  token_stream->tokens = NULL;
-  token_stream->tokens_arr_cap = -1;
-  token_stream->tokens_arr_len = -1;
 
   return 0;
 }

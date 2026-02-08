@@ -6,13 +6,13 @@
  */
 
 static t_ast_n *
-parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
-               int end); ///< Forward declaration of parse pipeline
+parse_pipeline(t_ast *ast, t_token_stream *ts, int start, int end,
+               t_arena *a); ///< Forward declaration of parse pipeline
 static t_ast_n *
-parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
-                   int end); ///< Forward declaration of parse conditionals
+parse_conditionals(t_ast *ast, t_token_stream *ts, int start, int end,
+                   t_arena *a); ///< Forward declaration of parse conditionals
 static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
-                                int end); ///< Forward declaration
+                                int end, t_arena *a); ///< Forward declaration
 
 /**
  * @brief handles fail when creating io_redir array
@@ -21,22 +21,6 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
  *
  * Tokenizes command line buffer cmd_buf into command argv
  */
-static int handle_fail_err_clear(t_ast_n *node, int count_redir) {
-
-  for (int i = 0; i < count_redir; i++) {
-
-    if (node->io_redir[i]->filename != NULL)
-      free(node->io_redir[i]->filename);
-
-    if (node->io_redir[i] != NULL)
-      free(node->io_redir[i]);
-  }
-
-  free(node->io_redir);
-  node->io_redir = NULL;
-
-  return -1;
-}
 static int find_at_depth(t_token_stream *ts, int start, int end,
                          t_token_type wanted) {
   int depth = 0;
@@ -61,21 +45,16 @@ static int find_at_depth(t_token_stream *ts, int start, int end,
   return -1;
 }
 
-static int handle_realloc_io_redir(t_ast_n *node, size_t *capacity) {
+static int handle_realloc_io_redir(t_ast_n *node, size_t *capacity,
+                                   t_arena *a) {
 
   size_t new_cap = *capacity * BUF_GROWTH_FACTOR;
   if (new_cap >= MAX_REDIR_LEN) {
-    fprintf(stderr, "Too many redirections\n");
     return -1;
   }
 
-  t_io_redir **new_redir =
-      realloc(node->io_redir, sizeof(t_io_redir *) * new_cap);
-  if (!new_redir) {
-    perror("fatal realloc error");
-    return -1;
-  }
-
+  t_io_redir **new_redir = arena_alloc(a, sizeof(t_io_redir *) * new_cap);
+  memcpy(new_redir, node->io_redir, sizeof(t_io_redir *) * (*capacity));
   node->io_redir = new_redir;
 
   for (size_t i = *capacity; i < new_cap; i++) {
@@ -99,15 +78,10 @@ static int handle_realloc_io_redir(t_ast_n *node, size_t *capacity) {
  * calls recursively.
  */
 static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
-                             int start, int end) {
+                             int start, int end, t_arena *a) {
 
   node->io_redir =
-      (t_io_redir **)malloc(sizeof(t_io_redir *) * INITIAL_REDIR_LEN);
-  if (!node->io_redir) {
-    perror("fatal malloc error");
-    cleanup_ast(node);
-    return -1;
-  }
+      (t_io_redir **)arena_alloc(a, sizeof(t_io_redir *) * INITIAL_REDIR_LEN);
 
   for (int i = 0; i < INITIAL_REDIR_LEN; ++i)
     node->io_redir[i] = NULL;
@@ -122,8 +96,8 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
   for (int i = start; i <= end; i++) {
 
     if (count_redir >= capacity - 2) {
-      if (handle_realloc_io_redir(node, &capacity) == -1) {
-        fprintf(stderr, "\nCommand exceeds maximum redirections.");
+      if (handle_realloc_io_redir(node, &capacity, a) == -1) {
+        fprintf(stderr, "\nmsh: command exceeds maximum redirections.");
         return -1;
       }
     }
@@ -136,25 +110,20 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
       char buf[FILE_NAME_MAX];
 
       filename_prober = 0;
-      node->io_redir[count_redir] = (t_io_redir *)malloc(sizeof(t_io_redir));
+      node->io_redir[count_redir] =
+          (t_io_redir *)arena_alloc(a, sizeof(t_io_redir));
       node->io_redir[count_redir]->filename = NULL;
-      if (!node->io_redir[count_redir]) {
-        perror("fatal malloc");
-        return handle_fail_err_clear(node, count_redir);
-      }
       if (token_stream->tokens[i].len >= FILE_NAME_MAX) {
         fprintf(stderr, "\nInvalid filename");
-        return handle_fail_err_clear(node, count_redir);
       }
 
       strncpy(buf, token_stream->tokens[i].start, token_stream->tokens[i].len);
       buf[token_stream->tokens[i].len] = '\0';
 
-      node->io_redir[count_redir]->filename = strdup(buf);
-      if (!node->io_redir[count_redir]->filename) {
-        perror("fatal strdup error filename");
-        return handle_fail_err_clear(node, count_redir);
-      }
+      size_t len = strlen(buf);
+      char *arena_name = arena_alloc(a, len + 1);
+      memcpy(arena_name, buf, len + 1);
+      node->io_redir[count_redir]->filename = arena_name;
 
       node->io_redir[count_redir]->io_redir_type = pending;
       count_redir++;
@@ -182,7 +151,6 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
   }
 
   if (count_redir == 0) {
-    free(node->io_redir);
     node->io_redir = NULL;
   } else {
     node->redir_bool = 1;
@@ -205,25 +173,20 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
  * returning node.
  */
 static t_ast_n *parse_command(t_ast *ast, t_token_stream *ts, int start,
-                              int end) {
+                              int end, t_arena *a) {
 
   if (start > end)
     return NULL;
 
-  t_ast_n *node = (t_ast_n *)malloc(sizeof(t_ast_n));
+  t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
   if (!node) {
-    perror("fatal malloc error");
-    return NULL;
+    perror("malloc");
+    exit(12);
   }
   init_ast_node(node);
   node->op_type = OP_SIMPLE;
 
-  int redir_count = scan_redirections(node, ts, start, end);
-  if (redir_count == -1) {
-    perror("fatal err");
-    cleanup_ast_node(node);
-    return NULL;
-  }
+  scan_redirections(node, ts, start, end, a);
 
   size_t count = (end - start) + 1;
   node->tok_start = &(ts->tokens[start]);
@@ -268,7 +231,7 @@ static int next_terminator_index(t_token_stream *ts, int start, int end) {
  * Background terminator & parsed as left tree, ; operator parsed as root node.
  */
 static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
-                                  int end) {
+                                  int end, t_arena *a) {
 
   int i = start;
   t_ast_n *seq = NULL;
@@ -295,10 +258,8 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
       continue;
     }
 
-    t_ast_n *cmd = parse_conditionals(ast, ts, cmd_start, cmd_end);
+    t_ast_n *cmd = parse_conditionals(ast, ts, cmd_start, cmd_end, a);
     if (!cmd) {
-      if (seq)
-        cleanup_ast(seq);
       return NULL;
     }
 
@@ -308,12 +269,12 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
     if (!seq)
       seq = cmd;
     else {
-      t_ast_n *node = (t_ast_n *)malloc(sizeof(t_ast_n));
+      t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
       if (!node) {
-        perror("268: fatal malloc terminators");
-        cleanup_ast(seq);
-        return NULL;
+        perror("malloc");
+        exit(12);
       }
+
       init_ast_node(node);
 
       node->op_type = OP_SEQ;
@@ -345,7 +306,7 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
  * parse_terminators to attach to AST.
  */
 static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
-                                   int end) {
+                                   int end, t_arena *a) {
 
   if (start > end)
     return NULL;
@@ -387,33 +348,27 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
   }
 
   if (last_conditional_index == -1) {
-    return parse_pipeline(ast, ts, start, end);
+    return parse_pipeline(ast, ts, start, end, a);
   } else {
 
-    node = (t_ast_n *)malloc(sizeof(t_ast_n));
+    node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
     if (!node) {
-      perror("node malloc fatal fail");
-      return NULL;
+      perror("malloc");
+      exit(12);
     }
     init_ast_node(node);
     node->op_type = cond_flag;
 
-    node->left = parse_conditionals(ast, ts, start, last_conditional_index - 1);
-    node->right = parse_conditionals(ast, ts, last_conditional_index + 1, end);
-
+    node->left =
+        parse_conditionals(ast, ts, start, last_conditional_index - 1, a);
+    node->right =
+        parse_conditionals(ast, ts, last_conditional_index + 1, end, a);
     if (!node->left || !node->right) {
-
-      if (node->op_type == OP_AND)
+      if (node->op_type == OP_AND) {
         fprintf(stderr, "\nmesh: syntax error near token '&&'\n");
-      if (node->op_type == OP_OR)
+      } else {
         fprintf(stderr, "\nmesh: syntax error near token '||'\n");
-
-      if (node->left)
-        cleanup_ast(node->left);
-      if (node->right)
-        cleanup_ast(node->right);
-
-      cleanup_ast_node(node);
+      }
 
       return NULL;
     }
@@ -441,7 +396,7 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
  *
  */
 static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
-                               int end) {
+                               int end, t_arena *a) {
 
   if (start > end)
     return NULL;
@@ -476,10 +431,10 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
   }
 
   if (last_pipe_index == -1) {
-    return parse_subshells(ast, ts, start, end);
+    return parse_subshells(ast, ts, start, end, a);
   } else {
 
-    node = (t_ast_n *)malloc(sizeof(t_ast_n));
+    node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
     if (!node) {
       perror("node malloc fatal fail");
       return NULL;
@@ -487,21 +442,13 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
     init_ast_node(node);
     node->op_type = OP_PIPE;
 
-    node->left = parse_pipeline(ast, ts, start, last_pipe_index - 1);
-    node->right = parse_pipeline(ast, ts, last_pipe_index + 1, end);
-
+    node->left = parse_pipeline(ast, ts, start, last_pipe_index - 1, a);
+    node->right = parse_pipeline(ast, ts, last_pipe_index + 1, end, a);
     if (!node->left || !node->right) {
-
       fprintf(stderr, "\nmesh: syntax error near token '|'\n");
-      if (node->left)
-        cleanup_ast(node->left);
-      if (node->right)
-        cleanup_ast(node->right);
-
-      cleanup_ast_node(node);
-
       return NULL;
     }
+
     return node;
   }
 
@@ -509,7 +456,7 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
 }
 
 static t_ast_n *parse_if_chain(t_ast *ast, t_token_stream *ts, int start,
-                               int end) {
+                               int end, t_arena *a) {
   t_token_type type = ts->tokens[start].type;
 
   if (type == TOKEN_ELIF) {
@@ -546,42 +493,35 @@ static t_ast_n *parse_if_chain(t_ast *ast, t_token_stream *ts, int start,
       }
     }
 
-    t_ast_n *node = malloc(sizeof(t_ast_n));
+    t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
     if (!node)
       return NULL;
     init_ast_node(node);
     node->op_type = OP_IF;
 
-    node->left = parse_terminators(ast, ts, start + 1, then_idx - 1);
-    node->right = parse_terminators(ast, ts, then_idx + 1, next_ctrl - 1);
+    node->left = parse_terminators(ast, ts, start + 1, then_idx - 1, a);
+    node->right = parse_terminators(ast, ts, then_idx + 1, next_ctrl - 1, a);
     node->sub_ast_root = NULL;
 
     if (!node->left || !node->right)
-      goto fail;
+      return NULL;
 
     if (next_ctrl != end) {
-      node->sub_ast_root = parse_if_chain(ast, ts, next_ctrl, end);
+      node->sub_ast_root = parse_if_chain(ast, ts, next_ctrl, end, a);
       if (!node->sub_ast_root)
-        goto fail;
+        return NULL;
     }
     return node;
-
-  fail:
-    if (node->left)
-      cleanup_ast(node->left);
-    if (node->right)
-      cleanup_ast(node->right);
-    free(node);
-    return NULL;
   }
 
   if (type == TOKEN_ELSE) {
-    return parse_terminators(ast, ts, start + 1, end - 1);
+    return parse_terminators(ast, ts, start + 1, end - 1, a);
   }
 
   return NULL;
 }
-static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end) {
+static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end,
+                         t_arena *a) {
 
   int fi_idx = find_at_depth(ts, start, end, TOKEN_FI);
   if (fi_idx == -1) {
@@ -610,41 +550,35 @@ static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end) {
     }
   }
 
-  t_ast_n *node = malloc(sizeof(t_ast_n));
+  t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
   if (!node)
-    return NULL;
+    goto fail;
   init_ast_node(node);
   node->op_type = OP_IF;
 
-  node->left = parse_terminators(ast, ts, start + 1, then_idx - 1);
-  node->right = parse_terminators(ast, ts, then_idx + 1, next_ctrl - 1);
+  node->left = parse_terminators(ast, ts, start + 1, then_idx - 1, a);
+  node->right = parse_terminators(ast, ts, then_idx + 1, next_ctrl - 1, a);
   node->sub_ast_root = NULL;
 
   if (!node->left || !node->right)
-    goto fail;
+    return NULL;
 
   if (ts->tokens[next_ctrl].type == TOKEN_ELIF ||
       ts->tokens[next_ctrl].type == TOKEN_ELSE) {
-    node->sub_ast_root = parse_if_chain(ast, ts, next_ctrl, fi_idx);
+    node->sub_ast_root = parse_if_chain(ast, ts, next_ctrl, fi_idx, a);
     if (!node->sub_ast_root)
-      goto fail;
+      return NULL;
   }
 
   return node;
 
 fail:
-  if (node->left)
-    cleanup_ast(node->left);
-  if (node->right)
-    cleanup_ast(node->right);
-  if (node->sub_ast_root)
-    cleanup_ast(node->sub_ast_root);
-  free(node);
-  return NULL;
+  perror("malloc");
+  exit(12);
 }
 
-static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
-                            int end) {
+static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
+                            t_arena *a) {
   int do_idx = -1;
   int done_idx = -1;
   int depth = 0;
@@ -668,45 +602,49 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start,
     return NULL;
   }
 
-  t_ast_n *node = (t_ast_n *)malloc(sizeof(t_ast_n));
+  t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
   if (!node)
-    return NULL;
+    goto fail;
   init_ast_node(node);
   node->op_type = OP_WHILE;
 
-  node->left = parse_terminators(ast, ts, start + 1, do_idx - 1);
-  node->right = parse_terminators(ast, ts, do_idx + 1, done_idx - 1);
+  node->left = parse_terminators(ast, ts, start + 1, do_idx - 1, a);
+  node->right = parse_terminators(ast, ts, do_idx + 1, done_idx - 1, a);
 
-  if (scan_redirections(node, ts, done_idx + 1, end) == -1) {
-    cleanup_ast_node(node);
+  if (scan_redirections(node, ts, done_idx + 1, end, a) == -1) {
     return NULL;
   }
 
   return node;
+
+fail:
+  perror("malloc");
+  exit(12);
 }
 
-static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end) {
+static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end,
+                          t_arena *a) {
   if (start > end) {
     fprintf(stderr, "msh: syntax error: incomplete for loop\n");
     return NULL;
   }
 
-  t_ast_n *node = malloc(sizeof(t_ast_n));
+  t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
   if (!node)
-    return NULL;
+    goto fail;
   init_ast_node(node);
   node->op_type = OP_FOR;
 
   node->for_var = &(ts->tokens[start + 1]);
   if (node->for_var->type != TOKEN_SIMPLE) {
     fprintf(stderr, "msh: syntax error: expected variable name after 'for'\n");
-    goto fail;
+    return NULL;
   }
 
   if (ts->tokens[start + 2].type != TOKEN_IN) {
     fprintf(stderr, "msh: syntax error: expected 'in' after 'for %.*s'\n",
             (int)node->for_var->len, node->for_var->start);
-    goto fail;
+    return NULL;
   }
 
   int items_start = start + 3;
@@ -732,7 +670,7 @@ static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end) {
   }
   if (do_idx == -1 || done_idx == -1) {
     fprintf(stderr, "msh: syntax error: missing 'do' or 'done'\n");
-    goto fail;
+    return NULL;
   }
 
   node->for_items = &(ts->tokens[items_start]);
@@ -745,19 +683,20 @@ static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end) {
     }
   }
 
-  node->sub_ast_root = parse_terminators(ast, ts, do_idx + 1, done_idx - 1);
-  if (!node->sub_ast_root)
-    goto fail;
+  node->sub_ast_root = parse_terminators(ast, ts, do_idx + 1, done_idx - 1, a);
+  if (!node->sub_ast_root) {
+    fprintf(stderr, "msh: syntax error: empty loop\n");
+    return NULL;
+  }
 
   return node;
-
 fail:
-  cleanup_ast_node(node);
-  return NULL;
+  perror("malloc");
+  exit(12);
 }
 
 static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
-                                   int end) {
+                                   int end, t_arena *a) {
 
   if (start > end)
     return NULL;
@@ -765,22 +704,22 @@ static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
   t_token_type type = ts->tokens[start].type;
 
   if (type == TOKEN_IF) {
-    return parse_if(ast, ts, start, end);
+    return parse_if(ast, ts, start, end, a);
   } else if (type == TOKEN_WHILE) {
-    return parse_while(ast, ts, start, end);
+    return parse_while(ast, ts, start, end, a);
   } else if (type == TOKEN_FOR) {
-    return parse_for(ast, ts, start, end);
+    return parse_for(ast, ts, start, end, a);
   }
-  return parse_command(ast, ts, start, end);
+  return parse_command(ast, ts, start, end, a);
 }
 
 static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
-                                int end) {
+                                int end, t_arena *a) {
 
   if (start > end)
     return NULL;
   if (ts->tokens[start].type != TOKEN_OPEN_PAR) {
-    return parse_flow_control(ast, ts, start, end);
+    return parse_flow_control(ast, ts, start, end, a);
   }
 
   t_ast_n *node = NULL;
@@ -799,36 +738,35 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
   }
 
   if (first_open_par_idx == -1 || last_close_par_idx == -1) {
-    return parse_flow_control(ast, ts, start, end);
+    return parse_flow_control(ast, ts, start, end, a);
   } else {
 
-    node = (t_ast_n *)malloc(sizeof(t_ast_n));
-    if (!node) {
-      perror("575: node malloc fail");
-      return NULL;
-    }
+    node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
+    if (!node)
+      goto fail;
+
     init_ast_node(node);
-    int redir_count = scan_redirections(node, ts, last_close_par_idx + 1, end);
-    if (redir_count == -1) {
-      perror("redir subsh");
-      cleanup_ast_node(node);
-      return NULL;
-    }
+    int redir_count =
+        scan_redirections(node, ts, last_close_par_idx + 1, end, a);
+    if (redir_count == -1)
+      goto fail;
+
     node->op_type = OP_SUBSHELL;
 
     node->sub_ast_root = parse_terminators(ast, ts, first_open_par_idx + 1,
-                                           last_close_par_idx - 1);
-    if (!node->sub_ast_root) {
-      perror("582: fail to parse subast");
-      cleanup_ast_node(node);
-      return NULL;
-    }
+                                           last_close_par_idx - 1, a);
+    if (!node->sub_ast_root)
+      goto fail;
 
     node->left = NULL;
     node->right = NULL;
   }
 
   return node;
+
+fail:
+  perror("mem");
+  exit(12);
 }
 
 // static const char* get_op_name(t_op_type type) {
@@ -932,11 +870,12 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
  * @return ast root node on success, NULL on fail.
  *
  */
-t_ast_n *build_ast(t_ast *ast, t_token_stream *token_stream) {
+t_ast_n *build_ast(t_ast *ast, t_token_stream *token_stream, t_arena *a) {
 
   init_ast(ast);
-  if ((ast->root = parse_terminators(
-           ast, token_stream, 0, token_stream->tokens_arr_len - 1)) == NULL) {
+  if ((ast->root = parse_terminators(ast, token_stream, 0,
+                                     token_stream->tokens_arr_len - 1, a)) ==
+      NULL) {
     return NULL;
   }
 

@@ -1,4 +1,5 @@
 #include "executor.h"
+#include "lexer.h"
 #include <signal.h>
 #include <stdlib.h>
 
@@ -391,11 +392,11 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
     return -1;
 
   char **argv = NULL;
-  t_err_type err_ret =
-      expand_make_argv(shell, &argv, node->tok_start, node->tok_segment_len);
+  t_err_type err_ret = expand_make_argv(shell, &argv, node->tok_start,
+                                        node->tok_segment_len, &shell->arena);
   if (err_ret == err_fatal) {
     perror("fatal err expanding argv");
-    exit_builtin(node, shell, NULL);
+    exit(1);
   } else if (argv == NULL || argv[0] == NULL) {
     cleanup_argv(argv);
     return 0;
@@ -408,9 +409,7 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
                                     is_subshell, pipeline, argv);
     cleanup_argv(argv);
     return ret_pid;
-  }
-
-  if (job->position == P_FOREGROUND) {
+  } else if (job->position == P_FOREGROUND) {
     job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
     cleanup_argv(argv);
     shell->last_exit_status = job->last_exit_status;
@@ -964,7 +963,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
     char **expanded_items = NULL;
     t_err_type err = expand_make_argv(shell, &expanded_items, node->for_items,
-                                      node->items_len);
+                                      node->items_len, &shell->arena);
     if (err == err_fatal) {
       exit_builtin(NULL, shell, NULL);
     }
@@ -1010,7 +1009,6 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
  */
 int parse_and_execute(char **cmd_buf, t_shell *shell,
                       t_token_stream *token_stream, bool script) {
-
   int s_fd = -1;
   if (script) {
     s_fd = dup(STDERR_FILENO);
@@ -1019,13 +1017,15 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
     close(n_fd);
   }
 
+  init_token_stream(token_stream, &shell->arena);
   t_alias_hashtable *aliases = &(shell->aliases);
-  if (lex_command_line(cmd_buf, token_stream, aliases, 0) == -1) {
+  if (lex_command_line(cmd_buf, token_stream, aliases, 0, &shell->arena) ==
+      -1) {
     return -1;
   }
 
   t_ast_n *root;
-  if ((root = build_ast(&(shell->ast), token_stream)) == NULL) {
+  if ((root = build_ast(&(shell->ast), token_stream, &shell->arena)) == NULL) {
     return -1;
   }
 
@@ -1053,7 +1053,6 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
     sigaction(SIGINT, &osa_int, NULL);
     sigaction(SIGTSTP, &osa_tstp, NULL);
   }
-  cleanup_ast(root);
   restore_io(shell);
   shell->ast.root = NULL;
 

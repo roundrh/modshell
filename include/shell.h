@@ -26,6 +26,8 @@
  */
 typedef struct shell_s {
 
+  t_arena arena;
+
   char **argv;
   int argc;
 

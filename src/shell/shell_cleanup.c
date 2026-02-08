@@ -12,10 +12,9 @@
  * Flushes malloc'd data members, does nothing with static data members
  * refer to shell.h.
  */
-int cleanup_shell(t_shell *shell, int is_chld) {
+void cleanup_shell(t_shell *shell, int is_chld) {
 
-  cleanup_token_stream(&shell->token_stream);
-
+  arena_free(&shell->arena);
   if (shell->prompt)
     free(shell->prompt);
 
@@ -37,7 +36,6 @@ int cleanup_shell(t_shell *shell, int is_chld) {
 
   if (cleanup_sigtable(&(shell->shell_sigtable)) == -1) {
     perror("shell sigtable");
-    return -1;
   }
 
   flush_builtin_ht(&(shell->builtins));
@@ -46,8 +44,6 @@ int cleanup_shell(t_shell *shell, int is_chld) {
   shell->last_exit_status = 0;
 
   free_dll(&(shell->history));
-
-  cleanup_ast(shell->ast.root);
 
   if (shell->sh_name) {
     free(shell->sh_name);
@@ -68,12 +64,9 @@ int cleanup_shell(t_shell *shell, int is_chld) {
   if (isatty(shell->tty_fd) && shell->is_interactive && !is_chld) {
     if (reset_terminal_mode(shell) == -1) {
       perror("terminal fail");
-      return -1;
     }
   }
 
   if (isatty(shell->tty_fd) && shell->is_interactive && !is_chld)
     close(shell->tty_fd);
-
-  return 0;
 }

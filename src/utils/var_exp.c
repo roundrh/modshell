@@ -21,7 +21,8 @@ static long long parse_arith_addsub(const char **p, t_err_type *err);
 static long long parse_arith_exprsh(const char **p, t_err_type *err);
 static long long parse_arith_number(const char **p, t_err_type *err);
 
-static char **expand_fields(t_shell *shell, char **src_str, int *depth);
+static char **expand_fields(t_shell *shell, char **src_str, int *depth,
+                            t_arena *a);
 
 char *getenv_local(char **env, const char *var_name) {
 
@@ -371,7 +372,8 @@ static t_exp_handler find_handler(const char *c) {
   return expand_var;
 }
 
-char *expand_exit_status(t_shell *shell, const char *src, size_t *i) {
+char *expand_exit_status(t_shell *shell, const char *src, size_t *i,
+                         t_arena *a) {
 
   (void)src;
   (*i)++;
@@ -439,7 +441,7 @@ static int expand_glob(char ***argv) {
   return 0;
 }
 
-char *expand_args(t_shell *shell, const char *src, size_t *i) {
+char *expand_args(t_shell *shell, const char *src, size_t *i, t_arena *a) {
 
   if (isdigit(src[*i])) {
     char r[32];
@@ -522,7 +524,7 @@ char *expand_args(t_shell *shell, const char *src, size_t *i) {
   return NULL;
 }
 
-char *expand_pid(t_shell *shell, const char *src, size_t *i) {
+char *expand_pid(t_shell *shell, const char *src, size_t *i, t_arena *a) {
 
   (void)src;
   (*i)++;
@@ -695,7 +697,8 @@ static bool is_valid_var_char(char c, bool first_char) {
   }
 }
 
-static char *extract_arith(const char *src, size_t *i, t_err_type *err) {
+static char *extract_arith(const char *src, size_t *i, t_err_type *err,
+                           t_arena *a) {
   size_t idx = *i + 1;
   int depth = 1;
   size_t len = 0;
@@ -729,10 +732,10 @@ static char *extract_arith(const char *src, size_t *i, t_err_type *err) {
   return eqn_buf;
 }
 
-char *expand_arith(t_shell *shell, const char *src, size_t *i) {
+char *expand_arith(t_shell *shell, const char *src, size_t *i, t_arena *a) {
 
   t_err_type err = err_none;
-  char *raw_eqn_buf = extract_arith(src, i, &err);
+  char *raw_eqn_buf = extract_arith(src, i, &err, a);
   if (err == err_syntax) {
     fprintf(stderr, "\nmsh: invalid arith syntax\n");
     return strdup("");
@@ -745,7 +748,7 @@ char *expand_arith(t_shell *shell, const char *src, size_t *i) {
     return raw_eqn_buf;
 
   int f_depth = 1;
-  char **fields = expand_fields(shell, &raw_eqn_buf, &f_depth);
+  char **fields = expand_fields(shell, &raw_eqn_buf, &f_depth, a);
   free(raw_eqn_buf);
 
   char *expanded = fields && fields[0] ? strdup(fields[0]) : strdup("");
@@ -882,7 +885,7 @@ static bool is_op_char(const char *c) {
 }
 
 static char *extract_var_and_alt(const char *src, char **alt_ptr,
-                                 t_err_type *err) {
+                                 t_err_type *err, t_arena *a) {
 
   if (!src || src[0] == '\0') {
     return NULL;
@@ -972,8 +975,8 @@ static char *extract_var_and_alt(const char *src, char **alt_ptr,
   return var;
 }
 
-char *remove_leading_pattern(const char *src, const char *pattern,
-                             bool longest) {
+char *remove_leading_pattern(const char *src, const char *pattern, bool longest,
+                             t_arena *a) {
 
   char *rs = NULL;
   if (!pattern || pattern[0] == '\0') {
@@ -1038,7 +1041,7 @@ char *remove_leading_pattern(const char *src, const char *pattern,
 }
 
 static char *remove_trailing_pattern(const char *src, const char *pattern,
-                                     bool longest) {
+                                     bool longest, t_arena *a) {
 
   char *rs = NULL;
   if (!pattern || pattern[0] == '\0') {
@@ -1104,10 +1107,10 @@ static char *remove_trailing_pattern(const char *src, const char *pattern,
 }
 
 static char *expand_param_op(t_shell *shell, const char *src, t_param_op op,
-                             t_err_type *err) {
+                             t_err_type *err, t_arena *a) {
 
   char *alt = NULL;
-  char *var = extract_var_and_alt(src, &alt, err);
+  char *var = extract_var_and_alt(src, &alt, err, a);
   if (!var || !alt) {
     if (*err == err_fatal)
       exit(EXIT_FAILURE);
@@ -1174,7 +1177,7 @@ static char *expand_param_op(t_shell *shell, const char *src, t_param_op op,
     break;
   case PARAM_OP_HASH:
     if (val) {
-      result = remove_leading_pattern(val, alt, false);
+      result = remove_leading_pattern(val, alt, false, a);
     } else {
       result = strdup("");
     }
@@ -1182,21 +1185,21 @@ static char *expand_param_op(t_shell *shell, const char *src, t_param_op op,
 
   case PARAM_OP_HASH_HASH:
     if (val) {
-      result = remove_leading_pattern(val, alt, true);
+      result = remove_leading_pattern(val, alt, true, a);
     } else {
       result = strdup("");
     }
     break;
   case PARAM_OP_PERCENT:
     if (val) {
-      result = remove_trailing_pattern(val, alt, false);
+      result = remove_trailing_pattern(val, alt, false, a);
     } else {
       result = strdup("");
     }
     break;
   case PARAM_OP_PERCENT_PERCENT:
     if (val) {
-      result = remove_trailing_pattern(val, alt, true);
+      result = remove_trailing_pattern(val, alt, true, a);
     } else {
       result = strdup("");
     }
@@ -1225,7 +1228,8 @@ static char *expand_param_op(t_shell *shell, const char *src, t_param_op op,
  * @param err err type
  * @return char* expanded param to expand_fields
  */
-static char *expand_param(t_shell *shell, const char *src, t_err_type *err) {
+static char *expand_param(t_shell *shell, const char *src, t_err_type *err,
+                          t_arena *a) {
 
   t_param_op op = get_param_op(shell, src);
   if (op == PARAM_OP_ERR) {
@@ -1236,7 +1240,7 @@ static char *expand_param(t_shell *shell, const char *src, t_err_type *err) {
   if (op == PARAM_OP_NONE) {
 
     size_t i_ph = 0;
-    return expand_var(shell, src, &i_ph);
+    return expand_var(shell, src, &i_ph, a);
   } else if (op == PARAM_OP_LEN) {
 
     char buf[32];
@@ -1254,7 +1258,7 @@ static char *expand_param(t_shell *shell, const char *src, t_err_type *err) {
     return rs;
   }
 
-  char *result = expand_param_op(shell, src, op, err);
+  char *result = expand_param_op(shell, src, op, err, a);
   if (*err != err_none) {
     if (result)
       free(result);
@@ -1264,7 +1268,7 @@ static char *expand_param(t_shell *shell, const char *src, t_err_type *err) {
   return result;
 }
 
-char *expand_braces(t_shell *shell, const char *src, size_t *i) {
+char *expand_braces(t_shell *shell, const char *src, size_t *i, t_arena *a) {
 
   int depth = 0;
   size_t idx = *i;
@@ -1316,7 +1320,7 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
 
   char *str = NULL;
   int f_depth = 1;
-  char **fields = expand_fields(shell, &buf, &f_depth);
+  char **fields = expand_fields(shell, &buf, &f_depth, a);
   if (fields && fields[0]) {
     str = strdup(fields[0]);
     cleanup_argv(fields);
@@ -1330,7 +1334,7 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
   }
 
   t_err_type err = err_none;
-  char *result = expand_param(shell, str, &err);
+  char *result = expand_param(shell, str, &err, a);
   free(str);
   *i = idx;
 
@@ -1343,7 +1347,7 @@ char *expand_braces(t_shell *shell, const char *src, size_t *i) {
   return result;
 }
 
-char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
+char *expand_subshell(t_shell *shell, const char *src, size_t *i, t_arena *a) {
 
   size_t slen = strlen(src);
   size_t idx = *i;
@@ -1393,7 +1397,7 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
   if (pid == 0) {
 
     t_token_stream ts;
-    init_token_stream(&ts);
+    init_token_stream(&ts, &shell->arena);
 
     setpgid(0, 0);
 
@@ -1458,7 +1462,7 @@ char *expand_subshell(t_shell *shell, const char *src, size_t *i) {
   return NULL;
 }
 
-char *expand_var(t_shell *shell, const char *src, size_t *i) {
+char *expand_var(t_shell *shell, const char *src, size_t *i, t_arena *a) {
 
   size_t start = *i;
 
@@ -1507,7 +1511,8 @@ static int push_field(char ***fields, size_t *f_argc, size_t *f_cap,
   return 0;
 }
 
-static char **expand_fields(t_shell *shell, char **src_str, int *depth) {
+static char **expand_fields(t_shell *shell, char **src_str, int *depth,
+                            t_arena *a) {
 
   if (*depth >= 32) {
     fprintf(stderr, "msh: max nested depth");
@@ -1594,7 +1599,7 @@ static char **expand_fields(t_shell *shell, char **src_str, int *depth) {
       if (handler == expand_arith)
         i++;
 
-      char *val = handler(shell, src, &i);
+      char *val = handler(shell, src, &i, a);
       if (!val) {
         free(buffer);
         cleanup_argv(fields);
@@ -1879,7 +1884,7 @@ static int redir_tok_found(t_token *tok) {
 }
 
 t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *tokens,
-                            const size_t segment_len) {
+                            const size_t segment_len, t_arena *a) {
 
   size_t argv_cap = ARGV_INITIAL_LEN;
   char **argv_local = calloc(argv_cap, sizeof(char *));
@@ -1909,7 +1914,7 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *tokens,
 
       int f_depth = 0;
       char *tmp = strdup(brace_words[b]);
-      char **expanded_fields = expand_fields(shell, &tmp, &f_depth);
+      char **expanded_fields = expand_fields(shell, &tmp, &f_depth, a);
       free(tmp);
 
       if (!expanded_fields)

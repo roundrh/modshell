@@ -1,4 +1,6 @@
 #include "executor.h"
+#include "lexer.h"
+#include "shell.h"
 #include "shell_cleanup.h"
 #include "shell_init.h"
 #include "userinp.h"
@@ -19,12 +21,7 @@ void cleanup_global_shell_ptr(void) {
     g_shell_ptr = NULL;
   }
 }
-void cleanup_global_cmd_buf_ptr(void) {
-  if (g_cmd_buf_ptr != NULL) {
-    free(g_cmd_buf_ptr);
-    g_cmd_buf_ptr = NULL;
-  }
-}
+
 static char *append_script_line(char *old_buf, const char *new_line) {
 
   size_t old_len = old_buf ? strlen(old_buf) : 0;
@@ -71,7 +68,6 @@ int main(int argc, char **argv) {
   set_global_cmd_buf_ptr(cmd_line_buf);
 
   atexit(cleanup_global_shell_ptr);
-  atexit(cleanup_global_cmd_buf_ptr);
 
   if (init_shell_state(&shell_state) == -1) {
     perror("shell state init fatal fail");
@@ -172,7 +168,6 @@ int main(int argc, char **argv) {
       ssize_t n = getline(&cmd_line_buf, &cap, stdin);
       if (n == -1) {
         cleanup_shell(&shell_state, shell_state.last_exit_status);
-        free(cmd_line_buf);
         exit(shell_state.last_exit_status);
       }
       set_global_cmd_buf_ptr(cmd_line_buf);
@@ -184,7 +179,6 @@ int main(int argc, char **argv) {
         HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
 
       reap_sigchld_jobs(&shell_state);
-      free(cmd_line_buf);
       set_global_cmd_buf_ptr(NULL);
       continue;
     }
@@ -202,15 +196,9 @@ int main(int argc, char **argv) {
 
     parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream,
                       false);
-    set_global_cmd_buf_ptr(cmd_line_buf);
+    arena_reset(&shell_state.arena);
 
-    free(cmd_line_buf);
     set_global_cmd_buf_ptr(NULL);
-    for (int i = 0; i < shell_state.token_stream.tokens_arr_len; i++) {
-      shell_state.token_stream.tokens[i].start = NULL;
-      shell_state.token_stream.tokens[i].len = 0;
-      shell_state.token_stream.tokens[i].type = -1;
-    }
   }
 
   return 0;

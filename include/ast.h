@@ -67,7 +67,6 @@ typedef enum e_redir_types {
  * s_ast_n
  */
 typedef struct s_io_redir {
-
   t_redir_type io_redir_type;
   char *filename; // filename is delim in case of heredoc
 } t_io_redir;

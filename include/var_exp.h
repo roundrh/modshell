@@ -91,7 +91,8 @@ typedef enum e_param_op {
 } t_param_op;
 
 /* typedef function pointer for expansion handlers - used by dispatcher */
-typedef char *(*t_exp_handler)(t_shell *shell, const char *src, size_t *i);
+typedef char *(*t_exp_handler)(t_shell *shell, const char *src, size_t *i,
+                               t_arena *a);
 
 /**
  * @typedef s_exp_map
@@ -110,39 +111,40 @@ char *getenv_local(char **env, const char *var_name);
 /**
  * @brief expands "$?" last shell exit status
  */
-char *expand_exit_status(t_shell *shell, const char *src, size_t *i);
+char *expand_exit_status(t_shell *shell, const char *src, size_t *i,
+                         t_arena *a);
 
-char *expand_args(t_shell *shell, const char *src, size_t *i);
+char *expand_args(t_shell *shell, const char *src, size_t *i, t_arena *a);
 
 /**
  * @brief expands "??" pid of shell (shell->pgid).
  */
-char *expand_pid(t_shell *shell, const char *src, size_t *i);
+char *expand_pid(t_shell *shell, const char *src, size_t *i, t_arena *a);
 
 /**
  * @brief expands arithmetic expression syntax $(()).
  */
-char *expand_arith(t_shell *shell, const char *src, size_t *i);
+char *expand_arith(t_shell *shell, const char *src, size_t *i, t_arena *a);
 
 /**
  * @brief expands braces ${}.
  */
-char *expand_braces(t_shell *shell, const char *src, size_t *i);
+char *expand_braces(t_shell *shell, const char *src, size_t *i, t_arena *a);
 
 /**
  * @brief expands subshell $().
  */
-char *expand_subshell(t_shell *shell, const char *src, size_t *i);
+char *expand_subshell(t_shell *shell, const char *src, size_t *i, t_arena *a);
 
 /**
  * @brief expands standard $VAR.
  */
-char *expand_var(t_shell *shell, const char *src, size_t *i);
+char *expand_var(t_shell *shell, const char *src, size_t *i, t_arena *a);
 
 /**
  * @brief top-level function to be called by executor.
  */
 t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *start,
-                            const size_t segment_len);
+                            const size_t segment_len, t_arena *a);
 
 #endif // ! VAR_EXP_H

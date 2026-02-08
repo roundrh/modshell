@@ -1,4 +1,5 @@
 #include "shell_init.h"
+#include "lexer.h"
 
 /**
  * @file shell_init.c
@@ -286,6 +287,7 @@ void get_shell_prompt(t_shell *shell) {
  */
 int init_shell_state(t_shell *shell) {
 
+  arena_init(&shell->arena);
   get_term_size(&shell->rows, &shell->cols);
 
   shell->sh_name = (char *)malloc(4);
@@ -338,12 +340,6 @@ int init_shell_state(t_shell *shell) {
         shell->job_control_flag = 0;
       }
     }
-  }
-
-  if (init_token_stream(&(shell->token_stream)) == -1) {
-    perror("ts init");
-    close(shell->tty_fd);
-    return -1;
   }
 
   shell->job_table =
