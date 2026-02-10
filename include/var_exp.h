@@ -44,7 +44,6 @@
 /**
  * @define INITIAL_IFS_LEN
  * @brief initial length of the IFS vector
- * @note resized via BUF_GROWTH_FACTOR, maximum of 3 resizes before exiting.
  */
 #define INITIAL_IFS_LEN 32
 
@@ -66,7 +65,8 @@ typedef enum e_err_type {
   err_unbal_par = -4,
   err_overflow = -5,
   err_bad_sub = -6,
-  err_param_unset = -7
+  err_param_unset = -7,
+  err_depth = -8
 } t_err_type;
 
 /**
@@ -91,8 +91,8 @@ typedef enum e_param_op {
 } t_param_op;
 
 /* typedef function pointer for expansion handlers - used by dispatcher */
-typedef char *(*t_exp_handler)(t_shell *shell, const char *src, size_t *i,
-                               t_arena *a);
+typedef t_err_type (*t_exp_handler)(t_shell *shell, char **buf, size_t *buf_cap,
+                                    const char **p, size_t *k, t_arena *a);
 
 /**
  * @typedef s_exp_map
@@ -107,39 +107,46 @@ typedef struct s_exp_map {
 
 int add_to_env(t_shell *shell, char *var, char *val);
 int getenv_local_idx(char **env, const char *var_name);
-char *getenv_local(char **env, const char *var_name);
+char *getenv_local(char **env, const char *var_name, t_arena *a);
+
 /**
  * @brief expands "$?" last shell exit status
  */
-char *expand_exit_status(t_shell *shell, const char *src, size_t *i,
-                         t_arena *a);
+t_err_type expand_exit_status(t_shell *shell, char **buf, size_t *buf_cap,
+                              const char **p, size_t *k, t_arena *a);
 
-char *expand_args(t_shell *shell, const char *src, size_t *i, t_arena *a);
+t_err_type expand_args(t_shell *shell, char **buf, size_t *buf_cap,
+                       const char **p, size_t *k, t_arena *a);
 
 /**
  * @brief expands "??" pid of shell (shell->pgid).
  */
-char *expand_pid(t_shell *shell, const char *src, size_t *i, t_arena *a);
+t_err_type expand_pid(t_shell *shell, char **buf, size_t *buf_cap,
+                      const char **p, size_t *k, t_arena *a);
 
 /**
  * @brief expands arithmetic expression syntax $(()).
  */
-char *expand_arith(t_shell *shell, const char *src, size_t *i, t_arena *a);
+t_err_type expand_arith(t_shell *shell, char **buf, size_t *buf_cap,
+                        const char **p, size_t *k, t_arena *a);
 
 /**
  * @brief expands braces ${}.
  */
-char *expand_braces(t_shell *shell, const char *src, size_t *i, t_arena *a);
+t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
+                         const char **p, size_t *k, t_arena *a);
 
 /**
  * @brief expands subshell $().
  */
-char *expand_subshell(t_shell *shell, const char *src, size_t *i, t_arena *a);
+t_err_type expand_subshell(t_shell *shell, char **buf, size_t *buf_cap,
+                           const char **p, size_t *k, t_arena *a);
 
 /**
  * @brief expands standard $VAR.
  */
-char *expand_var(t_shell *shell, const char *src, size_t *i, t_arena *a);
+t_err_type expand_var(t_shell *shell, char **buf, size_t *buf_cap,
+                      const char **p, size_t *k, t_arena *a);
 
 /**
  * @brief top-level function to be called by executor.

@@ -85,24 +85,6 @@ static int update_no_noti_jobs(t_shell *shell) {
   }
   return 0;
 }
-static void cleanup_argv(char **argv) {
-
-  if (argv == NULL)
-    return;
-
-  int i = 0;
-  while (argv[i] != NULL) {
-
-    free(argv[i]);
-    argv[i] = NULL;
-
-    i++;
-  }
-
-  free(argv);
-  argv = NULL;
-}
-
 static int realloc_env_shell(t_shell *shell) {
 
   size_t new_cap = shell->env_cap * BUF_GROWTH_FACTOR;
@@ -929,7 +911,6 @@ int exit_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   /* perform last sweep reap */
   update_no_noti_jobs(shell);
 
-  cleanup_argv(argv);
   exit(exit_status);
 
   return 0; ///< Suppress err (unreachable)

@@ -110,6 +110,20 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
                      t_job *subshell_job, bool flow);
 static inline t_pgrp handle_tcsetpgrp(t_shell *shell, pid_t pgid);
 
+static void cleanup_flattened_ast(t_ast_n *node) {
+
+  if (!node)
+    return;
+
+  t_ast_n *p = node;
+  while (p) {
+    t_ast_n *next = p->right;
+
+    free(p);
+    p = next;
+  }
+}
+
 static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
 
   pid_t pid = 0;
@@ -481,14 +495,14 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
   return pid;
 }
 
-static t_ast_n *flatten_ast(t_ast_n *node, t_arena *a) {
+static t_ast_n *flatten_ast(t_ast_n *node) {
 
   if (!node)
     return NULL;
 
   if (node->op_type == OP_PIPE) {
-    t_ast_n *left_list = flatten_ast(node->left, a);
-    t_ast_n *right_list = flatten_ast(node->right, a);
+    t_ast_n *left_list = flatten_ast(node->left);
+    t_ast_n *right_list = flatten_ast(node->right);
 
     t_ast_n *tail = left_list;
     if (tail) {
@@ -503,7 +517,9 @@ static t_ast_n *flatten_ast(t_ast_n *node, t_arena *a) {
       return right_list;
     }
   } else {
-    t_ast_n *new_node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
+    t_ast_n *new_node = (t_ast_n *)malloc(sizeof(t_ast_n));
+    if (!new_node)
+      return NULL;
 
     init_ast_node(new_node);
 
@@ -542,7 +558,14 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
 
   pid_t last_pid = -1;
 
-  t_ast_n *pipeline = flatten_ast(node, &shell->arena);
+  t_ast_n *pipeline = flatten_ast(node);
+  if (!pipeline) {
+    perror("fail to flatten");
+
+    /* fail to malloc fatal*/
+    exit_builtin(node, shell, NULL);
+  }
+
   t_ast_n *head = pipeline;
   int count_cmd = 0;
   while (head) {
@@ -553,8 +576,7 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
   if (count_cmd < 1)
     return -1;
 
-  int (*pipes)[2] =
-      (int (*)[2])arena_alloc(&shell->arena, sizeof(int[2]) * (count_cmd - 1));
+  int (*pipes)[2] = malloc(sizeof(int[2]) * (count_cmd - 1));
   for (int i = 0; i < count_cmd - 1; i++) {
     pipes[i][0] = -1;
     pipes[i][1] = -1;
@@ -566,8 +588,10 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
         close(pipes[j][0]);
         close(pipes[j][1]);
       }
+      cleanup_flattened_ast(pipeline);
       pipeline = NULL;
-      perror("pipe");
+      perror("pipe fail");
+      free(pipes);
       return -1;
     }
   }
@@ -688,10 +712,17 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
     i++;
   }
 
+  if (pipeline) {
+    cleanup_flattened_ast(pipeline);
+    pipeline = NULL;
+  }
+
   for (int j = 0; j < count_cmd - 1; j++) {
     close(pipes[j][0]);
     close(pipes[j][1]);
   }
+
+  free(pipes);
 
   return last_pid;
 }

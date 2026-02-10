@@ -99,16 +99,13 @@ int main(int argc, char **argv) {
     }
 
     while (getline(&line, &cap, script) != -1) {
-
       char *p = line;
       while (*p && isspace((unsigned char)*p))
         p++;
+
       if (*p == '#' || *p == '\0')
         continue;
-
       total_buf = append_script_line(total_buf, line);
-
-      // printf("debug: %s\n", total_buf);
 
       if (parse_and_execute(&total_buf, &shell_state, &shell_state.token_stream,
                             true) == 0) {
@@ -116,17 +113,15 @@ int main(int argc, char **argv) {
         total_buf = NULL;
         shell_state.last_exit_status = 0;
       }
-      for (int i = 0; i < shell_state.token_stream.tokens_arr_len; i++) {
-        shell_state.token_stream.tokens[i].start = NULL;
-        shell_state.token_stream.tokens[i].len = 0;
-        shell_state.token_stream.tokens[i].type = -1;
-      }
+
+      arena_reset(&shell_state.arena);
       shell_state.token_stream.tokens_arr_len = 0;
     }
 
     if (total_buf != NULL) {
       fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
       free(total_buf);
+      total_buf = NULL;
     }
 
     free(line);

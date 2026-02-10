@@ -1,13 +1,11 @@
 #include "lexer.h"
+#include "arena.h"
 
 int init_token_stream(t_token_stream *token_stream, t_arena *a) {
 
   token_stream->tokens =
       (t_token *)arena_alloc(a, INITIAL_TOKS_ARR_CAP * sizeof(t_token));
-  if (token_stream->tokens == NULL) {
-    perror("malloc");
-    exit(12);
-  }
+
   token_stream->tokens_arr_cap = INITIAL_TOKS_ARR_CAP;
   for (size_t i = 0; i < INITIAL_TOKS_ARR_CAP; i++) {
     token_stream->tokens[i].type = -1;
@@ -101,27 +99,24 @@ t_token_type check_reserved_word(const char *start, size_t len) {
   return TOKEN_SIMPLE;
 }
 
-static int check_realloc_toks_arr(t_token_stream *ts, size_t tok_count) {
+static int check_realloc_toks_arr(t_token_stream *ts, size_t tok_count,
+                                  t_arena *a) {
 
   if (tok_count + 2 < ts->tokens_arr_cap)
     return 0;
 
-  size_t new_cap = (ts->tokens_arr_cap) * BUF_GROWTH_FACTOR;
-  t_token *new_toks_arr =
-      (t_token *)realloc(ts->tokens, new_cap * sizeof(t_token));
-  if (!new_toks_arr) {
-    perror("malloc");
-    exit(12);
-  }
+  size_t ocap = (ts->tokens_arr_cap);
+  size_t ncap = (ts->tokens_arr_cap) * BUF_GROWTH_FACTOR;
+  ts->tokens = (t_token *)arena_realloc(a, ts->tokens, ncap * sizeof(t_token),
+                                        ocap * sizeof(t_token));
 
-  ts->tokens = new_toks_arr;
-  for (size_t i = ts->tokens_arr_cap; i < new_cap; i++) {
+  for (size_t i = ts->tokens_arr_cap; i < ncap; i++) {
     ts->tokens[i].len = 0;
     ts->tokens[i].type = -1;
     ts->tokens[i].start = NULL;
   }
 
-  ts->tokens_arr_cap = new_cap;
+  ts->tokens_arr_cap = ncap;
 
   return 0;
 }
@@ -238,7 +233,7 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   char *cmd_buf = *cmd_line_buf;
   while (cmd_buf[i] != '\0') {
 
-    check_realloc_toks_arr(token_stream, token_count);
+    check_realloc_toks_arr(token_stream, token_count, a);
 
     if (!in_single_quote && !in_double_quote && cmd_buf[i] == '\'') {
       in_single_quote = true;

@@ -14,7 +14,26 @@ static t_region *region_create(size_t cap) {
   return r;
 }
 
+void *arena_realloc(t_arena *a, void *optr, size_t nsize, size_t osize) {
+
+  if (optr == NULL)
+    return arena_alloc(a, nsize);
+
+  if (nsize <= osize)
+    return optr;
+
+  void *nptr = arena_alloc(a, nsize);
+  if (!nptr)
+    return NULL;
+  memcpy(nptr, optr, osize);
+
+  return nptr;
+}
+
 void *arena_alloc(t_arena *a, size_t s) {
+
+  if (s == 0)
+    return NULL;
 
   s = (s + 7) & ~7;
   if (!a->curr || a->curr->off + s > a->curr->cap) {
@@ -40,12 +59,17 @@ void arena_init(t_arena *a) {
 }
 
 void arena_reset(t_arena *a) {
-  t_region *r = a->head;
-  while (r) {
-    r->off = 0;
-    r = r->next;
-  }
+  if (!a || !a->head)
+    return;
 
+  t_region *r = a->head->next;
+  while (r) {
+    t_region *next = r->next;
+    free(r);
+    r = next;
+  }
+  a->head->next = NULL;
+  a->head->off = 0;
   a->curr = a->head;
 }
 

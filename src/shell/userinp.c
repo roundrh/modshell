@@ -32,6 +32,11 @@ int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
   return 0;
 }
 
+static void tty_write(int fd, char *s) {
+  if (s)
+    HANDLE_WRITE_FAIL_FATAL(fd, s, strlen(s), NULL);
+}
+
 void get_term_size(int *rows, int *cols) {
   struct winsize w;
   ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
@@ -84,11 +89,16 @@ static void rndr_sgst(size_t cmd_len, size_t cmd_idx, t_dllnode *sgst) {
     return;
 
   char *s = sgst->strbg + cmd_len;
-  printf("\033[s");
-  printf("%s", COLOR_GRAY);
-  printf("%s", s);
-  printf("%s", COLOR_RESET);
-  printf("\033[u");
+  char a[32];
+  snprintf(a, sizeof(a), "\033[s");
+  tty_write(STDOUT_FILENO, a);
+  snprintf(a, sizeof(a), "%s", COLOR_GRAY);
+  tty_write(STDOUT_FILENO, a);
+  tty_write(STDOUT_FILENO, s);
+  snprintf(a, sizeof(a), "%s", COLOR_RESET);
+  tty_write(STDOUT_FILENO, a);
+  snprintf(a, sizeof(a), "\033[u");
+  tty_write(STDOUT_FILENO, a);
 }
 
 static void clr_sgst(size_t cmd_len, size_t cmd_idx, size_t sgst_len) {
@@ -128,29 +138,50 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   if (suggestion) {
     *suggestion = search_history(shell, cmd, cmd_len, cmd_idx, *suggestion);
   }
+
   int rows, cols;
   get_term_size(&rows, &cols);
 
   static size_t last_rows_drawn = 0;
-  size_t old_rows = last_rows_drawn;
 
-  if (old_rows > 0)
-    printf("\033[%luA", old_rows);
+  char a[32] = {0};
+  if (last_rows_drawn > 0) {
+    snprintf(a, sizeof(a), "\033[%zuA", last_rows_drawn);
+    tty_write(STDOUT_FILENO, a);
+  }
+  snprintf(a, sizeof(a), "\r\033[0J");
+  tty_write(STDOUT_FILENO, a);
 
-  printf("\r\x1b[J");
-  printf("%s", shell->prompt);
-  if (cmd_len > 0)
-    printf("%s", cmd);
+  tty_write(STDOUT_FILENO, shell->prompt);
+  tty_write(STDOUT_FILENO, cmd);
 
   if (suggestion && *suggestion) {
-    clr_sgst(cmd_len, cmd_idx, strlen((*suggestion)->strbg));
+    size_t slen = strlen((*suggestion)->strbg);
+    clr_sgst(cmd_len, cmd_idx, slen);
     rndr_sgst(cmd_len, cmd_idx, *suggestion);
   }
-  for (int i = cmd_idx; i < cmd_len; i++)
-    printf("\033[D");
 
   size_t total_len = shell->prompt_len + cmd_len;
-  last_rows_drawn = (total_len - 1) / cols;
+  size_t target_pos = shell->prompt_len + cmd_idx;
+
+  size_t current_row = (total_len > 0) ? (total_len - 1) / cols : 0;
+  size_t target_row = (target_pos > 0) ? (target_pos - 1) / cols : 0;
+  size_t target_col = target_pos % cols;
+
+  if (current_row > target_row) {
+    snprintf(a, sizeof(a), "\033[%zuA", current_row - target_row);
+    tty_write(STDOUT_FILENO, a);
+  }
+
+  snprintf(a, sizeof(a), "\r");
+  tty_write(STDOUT_FILENO, a);
+  if (target_col > 0) {
+    snprintf(a, sizeof(a), "\x1b[%zuC", target_col);
+    tty_write(STDOUT_FILENO, a);
+  }
+
+  last_rows_drawn = target_row;
+  fflush(stdout);
 }
 
 /**
@@ -735,9 +766,8 @@ char *read_user_inp(t_shell *shell) {
     }
 
     if (c == '\n' || c == '\r') {
-      for (size_t i = cmd_idx; i <= cmd_len; i++)
-        printf("\033[C");
-      printf("\033[J");
+      redraw_cmd(shell, cmd, cmd_len, cmd_idx, NULL);
+      fflush(stdin);
       fflush(stdout);
       break;
     }

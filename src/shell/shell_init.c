@@ -20,80 +20,67 @@
 static int push_built_ins(t_shell *shell) {
 
   if (insert_builtin(&(shell->builtins), "exit", exit_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'exit' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "stty", stty_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'exit' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "cd", cd_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'cd' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "alias", alias_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'alias' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "fg", fg_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'alias' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "bg", bg_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'alias' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "jobs", jobs_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'alias' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "kill", kill_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'alias' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "unalias", unalias_builtin, 0) ==
       NULL) {
-    perror("FATAL: Failed to insert 'unalias' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "export", export_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'export' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "unset", unset_builtin, 0) == NULL) {
-    perror("FATAL: Failed to insert 'unset' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "clear", clear_builtin, 1) == NULL) {
-    perror("FATAL: Failed to insert 'help' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
 
   if (insert_builtin(&(shell->builtins), "env", env_builtin, 1) == NULL) {
-    perror("FATAL: Failed to insert 'env' builtin");
     flush_builtin_ht(&(shell->builtins));
     return -1;
   }
@@ -133,7 +120,6 @@ static int push_built_ins(t_shell *shell) {
 
   return 0;
 }
-
 /**
  * @brief help function to copy environ to shell->env
  * @param shell pointer to shell struct
@@ -197,13 +183,13 @@ static int replace_home_dir(char **buf) {
 
   char *replacement = strdup(*buf);
   if (!replacement) {
-    perror("115: strdup malloc error");
+    perror("115: strdup");
     return -1;
   }
 
   char *bufbuf = malloc(PATH_MAX);
   if (!bufbuf) {
-    perror("121: bufbuf malloc error");
+    perror("121: malloc");
     free(replacement);
     return -1;
   }
