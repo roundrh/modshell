@@ -3,7 +3,7 @@
  * @brief Implementation of alias hashtable functions
  */
 
-#include"alias_ht.h"
+#include "alias_ht.h"
 
 /**
  * @brief Pushes a new alias node to the front of the hashtable bucket list
@@ -12,47 +12,50 @@
  * @param aliased_cmd The command that the alias represents
  * @return Pointer to the newly created node, or NULL on failure
  */
-t_alias_ht_node* push_front_alias_ht_list(t_alias_hashtable* ht, const char* alias, const char* aliased_cmd){
+t_alias_ht_node *push_front_alias_ht_list(t_alias_hashtable *ht,
+                                          const char *alias,
+                                          const char *aliased_cmd) {
 
-	int hd_idx = hash_alias(alias);
+  int hd_idx = hash_alias(alias);
 
-	t_alias_ht_node* alias_node = (t_alias_ht_node*)malloc(sizeof(t_alias_ht_node));
-	if(!alias_node){
-		perror("node malloc fail: pushfront built in ht");
-		return NULL;
-	}
-	alias_node->alias = (char*)malloc(strlen(alias) + 1);
-	if(!alias_node->alias){
-		perror("malloc nodekey fail: ht built in");
-		free(alias_node);
-		return NULL;
-	}
-	strcpy(alias_node->alias, alias);
+  t_alias_ht_node *alias_node =
+      (t_alias_ht_node *)malloc(sizeof(t_alias_ht_node));
+  if (!alias_node) {
+    perror("node malloc fail: pushfront built in ht");
+    return NULL;
+  }
+  alias_node->alias = (char *)malloc(strlen(alias) + 1);
+  if (!alias_node->alias) {
+    perror("malloc nodekey fail: ht built in");
+    free(alias_node);
+    return NULL;
+  }
+  strcpy(alias_node->alias, alias);
 
-    alias_node->aliased_cmd = (char*)malloc(strlen(aliased_cmd) + 1);
-	if(!alias_node->aliased_cmd){
-		perror("malloc nodekey fail: ht built in");
-        free(alias_node->alias);
-		free(alias_node);
-		return NULL;
-	}
-	strcpy(alias_node->aliased_cmd, aliased_cmd);
+  alias_node->aliased_cmd = (char *)malloc(strlen(aliased_cmd) + 1);
+  if (!alias_node->aliased_cmd) {
+    perror("malloc nodekey fail: ht built in");
+    free(alias_node->alias);
+    free(alias_node);
+    return NULL;
+  }
+  strcpy(alias_node->aliased_cmd, aliased_cmd);
 
-	alias_node->next = ht->buckets[hd_idx];
-	ht->buckets[hd_idx] = alias_node;
-	
-	return alias_node;
+  alias_node->next = ht->buckets[hd_idx];
+  ht->buckets[hd_idx] = alias_node;
+
+  return alias_node;
 }
 
 /**
  * @brief Initializes the alias hashtable
  * @param ht Pointer to the alias hashtable to initialize
  */
-void init_alias_hashtable(t_alias_hashtable* ht){
+void init_alias_hashtable(t_alias_hashtable *ht) {
 
-    for (int i = 0; i < DEFSIZE_H; ++i) 
-		ht->buckets[i] = NULL;
-	ht->alias_count = 0;
+  for (int i = 0; i < DEFSIZE_H; ++i)
+    ht->buckets[i] = NULL;
+  ht->alias_count = 0;
 }
 
 /**
@@ -60,18 +63,19 @@ void init_alias_hashtable(t_alias_hashtable* ht){
  * @param key The alias string to hash
  * @return The computed hash value modulo DEFSIZE_H
  */
-unsigned int hash_alias(const char* key){
+unsigned int hash_alias(const char *key) {
 
-    if (!key) return 0;
+  if (!key)
+    return 0;
 
-    unsigned int hash = 5381;
-    int c;
+  unsigned int hash = 5381;
+  int c;
 
-    while ((c = *key++)) {
-        hash = ((hash << 5) + hash) + c;
-    }
+  while ((c = *key++)) {
+    hash = ((hash << 5) + hash) + c;
+  }
 
-    return hash % DEFSIZE_H;
+  return hash % DEFSIZE_H;
 }
 
 /**
@@ -79,28 +83,30 @@ unsigned int hash_alias(const char* key){
  * @param ht Pointer to the alias hashtable
  * @param alias The alias string
  * @param aliased_cmd The command that the alias represents
- * @return Pointer to the inserted node, or existing node if alias already exists
+ * @return Pointer to the inserted node, or existing node if alias already
+ * exists
  */
-t_alias_ht_node* insert_alias(t_alias_hashtable* ht, const char* alias, const char* aliased_cmd){
+t_alias_ht_node *insert_alias(t_alias_hashtable *ht, const char *alias,
+                              const char *aliased_cmd) {
 
-    int idx = hash_alias(alias);
-	t_alias_ht_node* nn = NULL;
+  int idx = hash_alias(alias);
+  t_alias_ht_node *nn = NULL;
 
-	t_alias_ht_node* ptr = ht->buckets[idx];
-	while(ptr && strcmp(ptr->alias, alias) != 0){
-		ptr = ptr->next;
-	} //make sure alias doesnt exist //
-	if(!ptr){
-		nn = push_front_alias_ht_list(ht, alias, aliased_cmd);
-		if(!nn){
-			perror("push error for builtins ht");
-			return NULL;
-		}
-		ht->alias_count++;
-        return nn;
-	}
+  t_alias_ht_node *ptr = ht->buckets[idx];
+  while (ptr && strcmp(ptr->alias, alias) != 0) {
+    ptr = ptr->next;
+  } // make sure alias doesnt exist //
+  if (!ptr) {
+    nn = push_front_alias_ht_list(ht, alias, aliased_cmd);
+    if (!nn) {
+      perror("push error for builtins ht");
+      return NULL;
+    }
+    ht->alias_count++;
+    return nn;
+  }
 
-	return ptr;
+  return ptr;
 }
 
 /**
@@ -109,16 +115,16 @@ t_alias_ht_node* insert_alias(t_alias_hashtable* ht, const char* alias, const ch
  * @param ht Pointer to the alias hashtable
  * @return Pointer to the found node, or NULL if not found
  */
-t_alias_ht_node* hash_find_alias(const char* alias, t_alias_hashtable* ht){
+t_alias_ht_node *hash_find_alias(const char *alias, t_alias_hashtable *ht) {
 
-    int idx = hash_alias(alias);
+  int idx = hash_alias(alias);
 
-	t_alias_ht_node* ptr = ht->buckets[idx];
-	while(ptr && strcmp(ptr->alias, alias) != 0){
-		ptr = ptr->next;
-	}
+  t_alias_ht_node *ptr = ht->buckets[idx];
+  while (ptr && strcmp(ptr->alias, alias) != 0) {
+    ptr = ptr->next;
+  }
 
-	return ptr;
+  return ptr;
 }
 
 /**
@@ -127,33 +133,33 @@ t_alias_ht_node* hash_find_alias(const char* alias, t_alias_hashtable* ht){
  * @param alias The alias to delete
  * @return 0 on success, -1 if alias not found
  */
-int hash_delete_alias(t_alias_hashtable* ht, const char* alias){
+int hash_delete_alias(t_alias_hashtable *ht, const char *alias) {
 
-    int idx = hash_alias(alias);
+  int idx = hash_alias(alias);
 
-	t_alias_ht_node* ptr = ht->buckets[idx];
-	t_alias_ht_node* prev = NULL;
-	while(ptr && strcmp(ptr->alias, alias) != 0){
-		prev = ptr;
-		ptr = ptr->next;
-	} //make sure value doesnt exist
-	
-    if (!ptr){
-        return -1;
-	}
+  t_alias_ht_node *ptr = ht->buckets[idx];
+  t_alias_ht_node *prev = NULL;
+  while (ptr && strcmp(ptr->alias, alias) != 0) {
+    prev = ptr;
+    ptr = ptr->next;
+  } // make sure value doesnt exist
 
-    if (prev){
-        prev->next = ptr->next;
-	} else {
-        ht->buckets[idx] = ptr->next;
-	}
+  if (!ptr) {
+    return -1;
+  }
 
-    free(ptr->alias);
-    free(ptr->aliased_cmd);
-    free(ptr);
-    ht->alias_count--;
+  if (prev) {
+    prev->next = ptr->next;
+  } else {
+    ht->buckets[idx] = ptr->next;
+  }
 
-    return 0;
+  free(ptr->alias);
+  free(ptr->aliased_cmd);
+  free(ptr);
+  ht->alias_count--;
+
+  return 0;
 }
 
 /**
@@ -161,45 +167,45 @@ int hash_delete_alias(t_alias_hashtable* ht, const char* alias){
  * @param ht Pointer to the alias hashtable
  * @return Always returns 0
  */
-int flush_alias_ht(t_alias_hashtable* ht){
+int flush_alias_ht(t_alias_hashtable *ht) {
 
-    int i = 0;
-    while(i < DEFSIZE_H){
-        t_alias_ht_node* ptr = ht->buckets[i];
-        t_alias_ht_node* bomb = NULL;
-        
-        while(ptr != NULL){
-            bomb = ptr;
-            ptr = ptr->next;
-            free(bomb->alias);
-            free(bomb->aliased_cmd);
-            free(bomb);
-        }
+  int i = 0;
+  while (i < DEFSIZE_H) {
+    t_alias_ht_node *ptr = ht->buckets[i];
+    t_alias_ht_node *bomb = NULL;
 
-        ht->buckets[i] = NULL;
-        i++;
+    while (ptr != NULL) {
+      bomb = ptr;
+      ptr = ptr->next;
+      free(bomb->alias);
+      free(bomb->aliased_cmd);
+      free(bomb);
     }
 
-    ht->alias_count = 0;
-    return 0;
+    ht->buckets[i] = NULL;
+    i++;
+  }
+
+  ht->alias_count = 0;
+  return 0;
 }
 
 /**
  * @brief Prints all aliases in the hashtable
  * @param ht Pointer to the alias hashtable
  */
-void print_alias_ht(t_alias_hashtable* ht){
+void print_alias_ht(t_alias_hashtable *ht) {
 
-    int i = 0;
-    while(i < DEFSIZE_H){
-        t_alias_ht_node* ptr = ht->buckets[i];
-        while(ptr != NULL){
-            printf("%s='%s'\n", ptr->alias, ptr->aliased_cmd);
-            ptr = ptr->next;
-        }
-
-        i++;
+  int i = 0;
+  while (i < DEFSIZE_H) {
+    t_alias_ht_node *ptr = ht->buckets[i];
+    while (ptr != NULL) {
+      printf("%s='%s'\n", ptr->alias, ptr->aliased_cmd);
+      ptr = ptr->next;
     }
+
+    i++;
+  }
 }
 
 /**
@@ -208,11 +214,11 @@ void print_alias_ht(t_alias_hashtable* ht){
  * @param ht Pointer to the alias hashtable
  * @return 0 on successful swap, -1 if alias not found
  */
-char* find_alias_command(const char* str, t_alias_hashtable* ht){
+char *find_alias_command(const char *str, t_alias_hashtable *ht) {
 
-    t_alias_ht_node* node = hash_find_alias(str, ht);
-    if(!node)
-        return NULL;
-    
-    return node->aliased_cmd;
+  t_alias_ht_node *node = hash_find_alias(str, ht);
+  if (!node)
+    return NULL;
+
+  return node->aliased_cmd;
 }

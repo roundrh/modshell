@@ -18,6 +18,18 @@
  * @note mainly to avoid recursive include for include guards.
  */
 
+#define ENV_EXPORTED (1 << 0)
+#define ENV_READONLY (1 << 1)
+#define ENV_HAS_VINT (1 << 2)
+
+typedef struct s_env_entry {
+
+  char *name;
+  char *val;
+  long long vint;
+  unsigned char flags;
+} t_env_entry;
+
 /**
  * @typedef shell_s t_shell
  * @brief struct encapsulates all information about the shell.
@@ -68,7 +80,6 @@ typedef struct shell_s {
   int next_job_id;
 
   int std_fd_backup[2]; //
-  int intr;
 
   int rows;
   int cols;

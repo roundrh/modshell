@@ -278,13 +278,12 @@ int init_shell_state(t_shell *shell) {
 
   shell->sh_name = (char *)malloc(4);
   if (!shell->sh_name) {
-    perror("shell init: sh name malloc fail");
+    perror("malloc");
     return -1;
   }
 
   shell->prompt = NULL;
 
-  shell->intr = 0;
   shell->next_job_id = 1;
   shell->job_control_flag = 1;
 
@@ -311,7 +310,7 @@ int init_shell_state(t_shell *shell) {
   if (shell->is_interactive) {
     if (setpgid(0, 0) < 0) {
       if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-        perror("warning: setpgid failed");
+        perror("warning: setpgid fail");
         shell->job_control_flag = 0;
       }
     }
