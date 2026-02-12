@@ -149,7 +149,7 @@ static bool should_alias(t_token_stream *ts, size_t i) {
           prev == TOKEN_OR || prev == TOKEN_OPEN_PAR);
 }
 
-static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
+static int expand_alias_token(char **cmd_line_buf, t_hashtable *aliases,
                               t_token_stream *ts, t_arena *a) {
   if (!cmd_line_buf || !*cmd_line_buf || ts->tokens_arr_len == 0 || !aliases)
     return 0;
@@ -164,8 +164,14 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
       free(name);
       continue;
     }
+    char *alias_val = NULL;
+    t_ht_node *av = ht_find(aliases, name);
 
-    char *alias_val = find_alias_command(name, aliases);
+    if (av) {
+      t_alias *al = av->value;
+      if (al && al->cmd)
+        alias_val = strdup(al->cmd);
+    }
 
     if (alias_val && strcmp(name, alias_val) == 0) {
       free(name);
@@ -174,7 +180,6 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
     }
 
     if (alias_val) {
-
       size_t first_word_len = 0;
       while (alias_val[first_word_len] && !isspace(alias_val[first_word_len]))
         first_word_len++;
@@ -188,8 +193,6 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
 
       char *new_buf = arena_alloc(a, prefix_len + alias_len + (size_t)circular +
                                          suffix_len + 1);
-      if (!new_buf)
-        return -1;
 
       memcpy(new_buf, *cmd_line_buf, prefix_len);
       if (circular) {
@@ -204,9 +207,11 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
       *cmd_line_buf = new_buf;
 
       free(name);
+      free(alias_val);
       return 1;
     }
     free(name);
+    free(alias_val);
   }
   return 0;
 }
@@ -214,7 +219,7 @@ static int expand_alias_token(char **cmd_line_buf, t_alias_hashtable *aliases,
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop
  * cond cmd_buf[i+1] can be '\0' but never UB*/
 int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
-                     t_alias_hashtable *aliases, int depth, t_arena *a) {
+                     t_hashtable *aliases, int depth, t_arena *a) {
 
   /* alias depth */
   if (depth > 10) {

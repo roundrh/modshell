@@ -1,4 +1,5 @@
 #include "var_exp.h"
+#include "hashtable.h"
 #include <stdlib.h>
 
 static const t_exp_map g_jump_table[] = {
@@ -14,106 +15,132 @@ static const t_exp_map g_jump_table[] = {
 };
 
 /* Forward declerations */
-static long long parse_arith_primary(const char **p, t_err_type *err);
-static long long parse_arith_unary(const char **p, t_err_type *err);
-static long long parse_arith_muldiv(const char **p, t_err_type *err);
-static long long parse_arith_addsub(const char **p, t_err_type *err);
-static long long parse_arith_exprsh(const char **p, t_err_type *err);
-static long long parse_arith_number(const char **p, t_err_type *err);
+static long long parse_arith_primary(const char **p, t_err_type *err,
+                                     t_shell *shell);
+static long long parse_arith_unary(const char **p, t_err_type *err,
+                                   t_shell *shell);
+static long long parse_arith_muldiv(const char **p, t_err_type *err,
+                                    t_shell *shell);
+static long long parse_arith_addsub(const char **p, t_err_type *err,
+                                    t_shell *shell);
+static long long parse_arith_exprsh(const char **p, t_err_type *err,
+                                    t_shell *shell);
+static long long parse_arith_number(const char **p, t_err_type *err,
+                                    t_shell *shell);
 
 static char *expand_recursive(t_shell *shell, char *str, t_arena *a, int depth);
 
-char *getenv_local(char **env, const char *var_name, t_arena *a) {
-  if (!env || !var_name || !*var_name)
+char *getenv_local(t_hashtable *env, const char *var_name, t_arena *a) {
+  t_ht_node *node = ht_find(env, var_name);
+  if (!node)
     return NULL;
 
-  size_t key_len = strlen(var_name);
-  for (int i = 0; env[i]; i++) {
-    if (strncmp(env[i], var_name, key_len) == 0 && env[i][key_len] == '=') {
-      const char *val_start = env[i] + key_len + 1;
-      size_t val_len = strlen(val_start);
+  t_env_entry *entry = (t_env_entry *)node->value;
+  if (!entry || !entry->val)
+    return NULL;
 
-      char *res = arena_alloc(a, val_len + 1);
-      if (!res)
-        return NULL;
-
-      memcpy(res, val_start, val_len);
-      res[val_len] = '\0';
-      return res;
-    }
+  size_t len = strlen(entry->val);
+  char *copy = arena_alloc(a, len + 1);
+  if (copy) {
+    memcpy(copy, entry->val, len + 1);
   }
-  return NULL;
+  return copy;
 }
 
-int getenv_local_idx(char **env, const char *var_name) {
-  if (!env || !var_name || !*var_name)
-    return -1;
+char **flatten_env(t_hashtable *env, t_arena *a) {
+  char **envp = (char **)arena_alloc(a, sizeof(char *) * (env->count + 1));
+  size_t env_idx = 0;
 
-  size_t key_len = strlen(var_name);
-  for (int i = 0; env[i]; i++) {
-    if (strncmp(env[i], var_name, key_len) == 0 && env[i][key_len] == '=') {
-      return i;
-    }
-  }
-  return -1;
-}
+  for (int i = 0; i < HT_DEFSIZE; i++) {
+    t_ht_node *node = env->buckets[i];
 
-static int realloc_argv(char ***argv, size_t *argv_cap) {
+    while (node) {
+      t_env_entry *entry = (t_env_entry *)node->value;
 
-  size_t new_cap = *argv_cap * BUF_GROWTH_FACTOR;
+      if (entry && entry->val) {
+        size_t k_len = strlen(node->key);
+        size_t v_len = strlen(entry->val);
+        size_t total_len = k_len + v_len + 2;
 
-  char **new_argv = realloc(*argv, new_cap * sizeof(char *));
-  if (!new_argv)
-    return -1;
+        char *str = (char *)arena_alloc(a, total_len);
+        if (str) {
+          memcpy(str, node->key, k_len);
+          str[k_len] = '=';
+          memcpy(str + k_len + 1, entry->val, v_len);
+          str[total_len - 1] = '\0';
 
-  for (int i = *argv_cap; i < new_cap; i++)
-    new_argv[i] = NULL;
-
-  *argv = new_argv;
-  *argv_cap = new_cap;
-
-  return 0;
-}
-
-int add_to_env(t_shell *shell, char *var, char *val) {
-
-  if (!shell || !var || !val)
-    return -1;
-
-  if (shell->env_count + 1 >= shell->env_cap) {
-    if (realloc_argv(&shell->env, &shell->env_cap) == -1) {
-      perror("realloc");
-      return -1;
-    }
-  }
-
-  size_t size_env_var = strlen(var) + strlen(val) + 1 + 1; ///< +1 '=' & +1 '\0'
-  char *env_var = (char *)malloc(sizeof(char) * size_env_var);
-  if (!env_var) {
-    perror("41: malloc");
-    return -1;
-  }
-
-  snprintf(env_var, size_env_var, "%s=%s", var, val);
-  int idx = -1;
-  if ((idx = getenv_local_idx(shell->env, var)) == -1) {
-    if (shell->env_count - 1 >= shell->env_cap) {
-      if (realloc_argv(&shell->env, &shell->env_cap) == -1) {
-        perror("realloc");
-        exit(EXIT_FAILURE);
+          envp[env_idx++] = str;
+        }
       }
+      node = node->next;
     }
-    shell->env[shell->env_count++] = env_var;
-    shell->env[shell->env_count] = NULL;
-  } else {
-    free(shell->env[idx]);
-    shell->env[idx] = env_var;
   }
+
+  envp[env_idx] = NULL;
+  return envp;
+}
+
+void remove_from_env(t_hashtable *env, const char *var_name) {
+  ht_delete(env, var_name, free_env_entry);
+}
+
+void print_env(t_hashtable *env, bool exported_only) {
+  if (!env)
+    return;
+
+  for (size_t i = 0; i < HT_DEFSIZE; i++) {
+    t_ht_node *node = env->buckets[i];
+
+    while (node) {
+      t_env_entry *entry = (t_env_entry *)node->value;
+
+      if (entry && entry->val) {
+        if (!exported_only || (entry->flags & ENV_EXPORTED)) {
+          printf("%s=%s\n", node->key, entry->val);
+        }
+      }
+      node = node->next;
+    }
+  }
+}
+
+int add_to_env(t_shell *shell, const char *var, const char *val) {
+  if (!var || !val)
+    return -1;
+
+  t_ht_node *existing = ht_find(&shell->env, var);
+  t_env_entry *entry;
+
+  if (existing) {
+    entry = (t_env_entry *)existing->value;
+    free(entry->val);
+  } else {
+    entry = (t_env_entry *)malloc(sizeof(t_env_entry));
+    if (!entry)
+      return -1;
+    entry->name = strdup(var);
+    entry->flags = 0;
+    ht_insert(&shell->env, var, entry);
+  }
+
+  entry->val = strdup(val);
+
+  char *endptr;
+  long long res = strtoll(entry->val, &endptr, 10);
+
+  if (*val != '\0' && *endptr == '\0') {
+    entry->vint = res;
+    entry->flags |= ENV_HAS_VINT;
+  } else {
+    entry->flags &= ~ENV_HAS_VINT;
+  }
+
   return 0;
 }
+
 static char *get_ifs(t_shell *shell, t_arena *a) {
 
-  char *ifs = getenv_local(shell->env, "IFS", a);
+  char *ifs = getenv_local(&shell->env, "IFS", a);
   if (!ifs && (ifs = getenv("IFS")) == NULL) {
     char ifs_def[] = {' ', '\t', '\n', '\0'};
     ifs = (char *)arena_alloc(a, sizeof(ifs_def));
@@ -126,6 +153,13 @@ static int is_ifs_whitespace(char c) {
   return c == ' ' || c == '\t' || c == '\n';
 }
 
+static bool is_valid_var_char(char c, bool first_char) {
+  if (first_char) {
+    return isalpha(c) || c == '_';
+  } else {
+    return isalnum(c) || c == '_';
+  }
+}
 static t_exp_handler find_handler(const char *c) {
   if (isdigit(*c))
     return expand_args;
@@ -146,9 +180,10 @@ static void skip_spaces(const char **p) {
     (*p)++;
 }
 
-static long long parse_arith_pow(const char **p, t_err_type *err) {
+static long long parse_arith_pow(const char **p, t_err_type *err,
+                                 t_shell *shell) {
 
-  long long left = parse_arith_unary(p, err);
+  long long left = parse_arith_unary(p, err, shell);
   if (*err != err_none)
     return 0;
 
@@ -157,7 +192,7 @@ static long long parse_arith_pow(const char **p, t_err_type *err) {
   if ((*p)[0] == '*' && (*p)[1] == '*') {
     (*p) += 2;
 
-    long long right = parse_arith_pow(p, err);
+    long long right = parse_arith_pow(p, err, shell);
     if (*err != err_none)
       return 0;
 
@@ -175,13 +210,13 @@ static long long parse_arith_pow(const char **p, t_err_type *err) {
   return left;
 }
 
-static long long parse_arith_primary(const char **p, t_err_type *err) {
-
+static long long parse_arith_primary(const char **p, t_err_type *err,
+                                     t_shell *shell) {
   skip_spaces(p);
 
   if (**p == '(') {
     (*p)++;
-    long long val = parse_arith_exprsh(p, err);
+    long long val = parse_arith_exprsh(p, err, shell);
     skip_spaces(p);
     if (**p != ')') {
       *err = err_syntax;
@@ -192,27 +227,58 @@ static long long parse_arith_primary(const char **p, t_err_type *err) {
   }
 
   if (isdigit(**p)) {
-    return parse_arith_number(p, err);
+    return parse_arith_number(p, err, shell);
+  }
+
+  if (is_valid_var_char(**p, true)) {
+    const char *start = *p;
+    while (is_valid_var_char(**p, false)) {
+      (*p)++;
+    }
+
+    int len = *p - start;
+    char var_name[256];
+    if (len >= 256) {
+      *err = err_fatal;
+      return 0;
+    }
+
+    memcpy(var_name, start, len);
+    var_name[len] = '\0';
+
+    t_ht_node *node = ht_find(&shell->env, var_name);
+    if (node) {
+      t_env_entry *entry = (t_env_entry *)node->value;
+      if (entry->flags & ENV_HAS_VINT) {
+        return entry->vint;
+      }
+      if (entry->val) {
+        return strtoll(entry->val, NULL, 10);
+      }
+    }
+    return 0;
   }
 
   *err = err_syntax;
   return 0;
 }
-static long long parse_arith_unary(const char **p, t_err_type *err) {
+static long long parse_arith_unary(const char **p, t_err_type *err,
+                                   t_shell *shell) {
   skip_spaces(p);
   if (**p == '+') {
     (*p)++;
-    return parse_arith_unary(p, err);
+    return parse_arith_unary(p, err, shell);
   }
   if (**p == '-') {
     (*p)++;
-    return -parse_arith_unary(p, err);
+    return -parse_arith_unary(p, err, shell);
   }
-  return parse_arith_primary(p, err);
+  return parse_arith_primary(p, err, shell);
 }
-static long long parse_arith_muldiv(const char **p, t_err_type *err) {
+static long long parse_arith_muldiv(const char **p, t_err_type *err,
+                                    t_shell *shell) {
 
-  long long left = parse_arith_pow(p, err);
+  long long left = parse_arith_pow(p, err, shell);
   if (*err != err_none)
     return 0;
 
@@ -221,7 +287,7 @@ static long long parse_arith_muldiv(const char **p, t_err_type *err) {
     char op = **p;
     (*p)++;
 
-    long long right = parse_arith_primary(p, err);
+    long long right = parse_arith_primary(p, err, shell);
     if (*err != err_none)
       return 0;
 
@@ -241,9 +307,10 @@ static long long parse_arith_muldiv(const char **p, t_err_type *err) {
   }
   return left;
 }
-static long long parse_arith_addsub(const char **p, t_err_type *err) {
+static long long parse_arith_addsub(const char **p, t_err_type *err,
+                                    t_shell *shell) {
 
-  long long left = parse_arith_muldiv(p, err);
+  long long left = parse_arith_muldiv(p, err, shell);
   if (*err != err_none)
     return 0;
 
@@ -251,7 +318,7 @@ static long long parse_arith_addsub(const char **p, t_err_type *err) {
   while (**p == '+' || **p == '-') {
     char op = **p;
     (*p)++;
-    long long right = parse_arith_muldiv(p, err);
+    long long right = parse_arith_muldiv(p, err, shell);
 
     if (op == '+')
       left += right;
@@ -262,12 +329,13 @@ static long long parse_arith_addsub(const char **p, t_err_type *err) {
   }
   return left;
 }
-static long long parse_arith_exprsh(const char **p, t_err_type *err) {
+static long long parse_arith_exprsh(const char **p, t_err_type *err,
+                                    t_shell *shell) {
 
   if (!p || !*p || !**p)
     return 0;
 
-  long long result = parse_arith_addsub(p, err);
+  long long result = parse_arith_addsub(p, err, shell);
 
   skip_spaces(p);
   if (**p != '\0' && **p != ')' && *err == err_none) {
@@ -276,7 +344,8 @@ static long long parse_arith_exprsh(const char **p, t_err_type *err) {
 
   return result;
 }
-static long long parse_arith_number(const char **p, t_err_type *err) {
+static long long parse_arith_number(const char **p, t_err_type *err,
+                                    t_shell *shell) {
 
   char *endptr;
   long long val = strtoll(*p, &endptr, 10);
@@ -288,13 +357,6 @@ static long long parse_arith_number(const char **p, t_err_type *err) {
 
   *p = endptr;
   return val;
-}
-static bool is_valid_var_char(char c, bool first_char) {
-  if (first_char) {
-    return isalpha(c) || c == '_';
-  } else {
-    return isalnum(c) || c == '_';
-  }
 }
 static size_t skip_alnum_us(const char **p) {
 
@@ -405,59 +467,48 @@ t_err_type expand_args(t_shell *shell, char **buf, size_t *cap, const char **p,
   return err_none;
 }
 
-int expand_glob(t_shell *shell, char ***argv, t_arena *a) {
-  if (!argv || !*argv)
-    return 0;
+int expand_glob_from(t_shell *shell, char ***argv, int start, t_arena *a) {
+  char **old = *argv;
 
-  char **input_ptr = *argv;
   size_t cap = 32;
   size_t argc = 0;
-  char **new_argv = arena_alloc(a, sizeof(char *) * cap);
-  for (size_t i = 0; i < cap; i++) {
-    new_argv[i] = NULL;
+  char **newv = arena_alloc(a, sizeof(char *) * cap);
+
+  if (!newv)
+    return -1;
+
+  for (int i = 0; i < start; i++) {
+    newv[argc++] = old[i];
   }
 
-  if (!new_argv)
-    return -1;
-  for (int i = 0; input_ptr[i]; i++) {
-    char *current_arg = input_ptr[i];
-    if (strpbrk(current_arg, "*?[]")) {
+  for (int i = start; old[i]; i++) {
+    char *arg = old[i];
+
+    if (strpbrk(arg, "*?[]")) {
       glob_t g;
-      if (glob(current_arg, GLOB_NOCHECK | GLOB_TILDE, NULL, &g) == 0) {
+      if (glob(arg, GLOB_NOCHECK | GLOB_TILDE, NULL, &g) == 0) {
         for (size_t j = 0; j < g.gl_pathc; j++) {
-          while (argc >= cap - 1) {
-            size_t old_cap = cap;
+          if (argc + 1 >= cap) {
             cap *= 2;
-            new_argv = arena_realloc(a, *argv, cap * sizeof(char *),
-                                     old_cap * sizeof(char *));
-            for (size_t k = old_cap; k < cap; k++)
-              new_argv[k] = NULL;
+            newv = arena_realloc(a, newv, cap * sizeof(char *),
+                                 (cap / 2) * sizeof(char *));
           }
 
-          size_t plen = strlen(g.gl_pathv[j]);
-          char *path = arena_alloc(a, plen + 1);
-          if (path) {
-            memcpy(path, g.gl_pathv[j], plen + 1);
-            new_argv[argc++] = path;
-          }
+          size_t len = strlen(g.gl_pathv[j]);
+          char *p = arena_alloc(a, len + 1);
+          memcpy(p, g.gl_pathv[j], len + 1);
+          newv[argc++] = p;
         }
         globfree(&g);
         continue;
       }
     }
 
-    if (argc >= cap - 1) {
-      size_t old_sz = sizeof(char *) * cap;
-      cap *= 2;
-      new_argv = arena_realloc(a, new_argv, sizeof(char *) * cap, old_sz);
-      for (size_t j = old_sz; j < cap; j++)
-        new_argv[j] = NULL;
-    }
-    new_argv[argc++] = current_arg;
+    newv[argc++] = arg;
   }
 
-  new_argv[argc] = NULL;
-  *argv = new_argv;
+  newv[argc] = NULL;
+  *argv = newv;
   return 0;
 }
 
@@ -486,16 +537,20 @@ t_err_type expand_arith(t_shell *shell, char **buf, size_t *buf_cap,
   w[len] = '\0';
 
   *p += len + 2;
-  static int depth = 0;
-  char *word = expand_recursive(shell, w, a, ++depth);
-  depth--;
 
-  if (!word)
+  const char *eval_ptr;
+  if (strchr(w, '$')) {
+    static int depth = 0;
+    eval_ptr = expand_recursive(shell, w, a, ++depth);
+    depth--;
+  } else {
+    eval_ptr = w;
+  }
+  if (!eval_ptr)
     return err_fatal;
 
-  const char *eval_ptr = word;
   t_err_type err = err_none;
-  long long result = parse_arith_exprsh(&eval_ptr, &err);
+  long long result = parse_arith_exprsh(&eval_ptr, &err, shell);
   if (err != err_none)
     return err;
 
@@ -542,7 +597,7 @@ t_err_type expand_var(t_shell *shell, char **buf, size_t *buf_cap,
     strncpy(var_name, start, len);
     var_name[len] = '\0';
 
-    char *val = getenv_local(shell->env, var_name, a);
+    char *val = getenv_local(&shell->env, var_name, a);
     if (val) {
       append_to_buf(buf, buf_cap, k, val, a);
     }
@@ -741,7 +796,7 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
     strncpy(var_name, start, var_len);
     var_name[var_len] = '\0';
 
-    char *val = getenv_local(shell->env, var_name, a);
+    char *val = getenv_local(&shell->env, var_name, a);
     char len_str[20];
     snprintf(len_str, sizeof(len_str), "%zu", val ? strlen(val) : 0);
     append_to_buf(buf, buf_cap, k, len_str, a);
@@ -757,7 +812,7 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
   strncpy(var_name, start, var_name_len);
   var_name[var_name_len] = '\0';
 
-  char *val = getenv_local(shell->env, var_name, a);
+  char *val = getenv_local(&shell->env, var_name, a);
   const char *arg = start + var_name_len;
 
   if (op == PARAM_OP_MINUS || op == PARAM_OP_EQUAL || op == PARAM_OP_PLUS ||
@@ -847,7 +902,7 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
 
 t_err_type expand_tilde(t_shell *shell, char **buf, size_t *buf_cap,
                         const char **p, size_t *k, t_arena *a) {
-  char *home = getenv_local(shell->env, "HOME", a);
+  char *home = getenv_local(&shell->env, "HOME", a);
   if (!home)
     home = getenv("HOME");
 
@@ -861,11 +916,13 @@ t_err_type expand_tilde(t_shell *shell, char **buf, size_t *buf_cap,
   return err_none;
 }
 static t_token *mov_tok(t_token *t, const char *p, const size_t segment_len) {
+
   size_t k = 0;
-  while (k < segment_len && t->start + t->len <= p) {
+  while (k + 1 < segment_len && (t + 1)->start <= p) {
     t++;
     k++;
   }
+
   return t;
 }
 
@@ -875,6 +932,7 @@ static t_err_type make_buf(t_shell *shell, t_token *start,
   t_token *t = start;
   size_t k = 0;
   for (size_t i = 0; i < segment_len; ++i) {
+
     if (redir_tok_found(t)) {
       i++;
       t++;
@@ -1257,6 +1315,38 @@ bool has_brace_pattern(t_token *tok) {
   }
   return false;
 }
+
+static bool has_glob(const char *s) {
+  for (; *s; s++) {
+    if (*s == '*' || *s == '?')
+      return true;
+    if (*s == '[') {
+      const char *p = s + 1;
+      if (*p == '!' || *p == '^')
+        p++;
+      if (*p == ']')
+        continue;
+      while (*p && *p != ']')
+        p++;
+      if (*p == ']')
+        return true;
+    }
+  }
+  return false;
+}
+
+static int find_glob_start(char **argv) {
+  if (!argv)
+    return -1;
+
+  for (int i = 0; argv[i]; i++) {
+    if (has_glob(argv[i])) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
                             const size_t segment_len, t_arena *a) {
   t_token_stream vs;
@@ -1311,9 +1401,12 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
     return err;
 
   if (*argv) {
-    if (expand_glob(shell, argv, a) != 0) {
-      return err_fatal;
+    int m = find_glob_start(*argv);
+    if (m >= 0) {
+      if (expand_glob_from(shell, argv, m, a) != 0)
+        return err_fatal;
     }
+
     for (int i = 0; (*argv)[i]; i++) {
       strip_quotes((*argv)[i]);
     }

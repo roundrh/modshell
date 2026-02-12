@@ -4,6 +4,7 @@
  */
 
 #include "builtins.h"
+#include "var_exp.h"
 
 static int update_no_noti_jobs(t_shell *shell) {
 
@@ -85,117 +86,22 @@ static int update_no_noti_jobs(t_shell *shell) {
   }
   return 0;
 }
-static int realloc_env_shell(t_shell *shell) {
 
-  size_t new_cap = shell->env_cap * BUF_GROWTH_FACTOR;
-  char **new_shell_env = realloc(shell->env, (new_cap) * sizeof(char *));
-  if (!new_shell_env) {
-    perror("fatal malloc");
-    return -1;
+void free_env_entry(void *value) {
+  t_env_entry *entry = (t_env_entry *)value;
+  if (entry) {
+    free(entry->name);
+    free(entry->val);
+    free(entry);
   }
-
-  shell->env = new_shell_env;
-
-  for (size_t j = shell->env_cap; j < new_cap; j++) {
-    shell->env[j] = NULL;
-  }
-
-  shell->env_cap = new_cap;
-
-  return 0;
 }
 
-static int getenv_local(char **env, const char *var_name) {
-
-  if (!env || !var_name || !*var_name)
-    return -2;
-
-  size_t key_len = strlen(var_name);
-
-  for (int i = 0; env[i]; i++) {
-    if (strncmp(env[i], var_name, key_len) == 0 && env[i][key_len] == '=') {
-      return i;
-    }
-  }
-  return -1;
-}
-static int realloc_argv(char ***argv, size_t *argv_cap) {
-
-  size_t new_cap = *argv_cap * BUF_GROWTH_FACTOR;
-
-  char **new_argv = realloc(*argv, new_cap * sizeof(char *));
-  if (!new_argv)
-    return -1;
-
-  for (int i = *argv_cap; i < new_cap; i++)
-    new_argv[i] = NULL;
-
-  *argv = new_argv;
-  *argv_cap = new_cap;
-
-  return 0;
-}
-static int add_to_env(t_shell *shell, char *var, char *val) {
-
-  if (!shell || !var || !val)
-    return -1;
-
-  if (shell->env_count + 1 >= shell->env_cap) {
-    if (realloc_env_shell(shell) == -1) {
-      perror("realloc");
-      return -1;
-    }
-  }
-
-  size_t size_env_var = strlen(var) + strlen(val) + 1 + 1; ///< +1 '=' & +1 '\0'
-  char *env_var = (char *)malloc(sizeof(char) * size_env_var);
-  if (!env_var) {
-    perror("41: fatal malloc env_var");
-    return -1;
-  }
-
-  snprintf(env_var, size_env_var, "%s=%s", var, val);
-  int idx = -1;
-  if ((idx = getenv_local(shell->env, var)) == -1) {
-
-    if (shell->env_count - 1 >= shell->env_cap) {
-      if (realloc_argv(&shell->env, &shell->env_cap) == -1) {
-        perror("realloc");
-        exit(EXIT_FAILURE);
-      }
-    }
-    shell->env[shell->env_count++] = env_var;
-    shell->env[shell->env_count] = NULL;
-  } else {
-    free(shell->env[idx]);
-    shell->env[idx] = env_var;
-  }
-  return 0;
-}
-static int remove_from_env(t_shell *shell, char *remove) {
-
-  for (size_t i = 0; i < shell->env_count; i++) {
-    if (strncmp(shell->env[i], remove, strlen(remove)) == 0 &&
-        shell->env[i][strlen(remove)] == '=') {
-
-      free(shell->env[i]);
-
-      if (i < shell->env_count - 1) {
-        memmove(&shell->env[i], &shell->env[i + 1],
-                (shell->env_count - i - 1) * sizeof(char *));
-      }
-
-      shell->env[shell->env_count - 1] = NULL;
-      shell->env_count--;
-
-      return 0;
-    }
-  }
-
-  return -1;
+void free_builtin(void *value) {
+  if (value)
+    free(value);
 }
 
-static int wait_for_foreground_job(t_job *job, t_shell *shell) {
+int wait_for_foreground_job(t_job *job, t_shell *shell) {
 
   int status;
   pid_t pid;
@@ -237,68 +143,6 @@ static int wait_for_foreground_job(t_job *job, t_shell *shell) {
     }
   }
 
-  return 0;
-}
-
-/**
- * @brief Builtin help command - displays available commands
- * @param node AST node containing command arguments
- * @param shell Shell context
- * @return Always returns 0
- */
-int help_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-  const int CMD_WIDTH = 30;
-
-  printf("\n\x1b[1;35m--- List of Built-in Shell Commands ---\x1b[0m\n");
-
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "cd [DIR]",
-         "Change the current directory.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "pwd",
-         "Print the name of the current working directory.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "clear",
-         "Clear the terminal screen.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "exit",
-         "Terminate the shell session.");
-
-  printf("\n\x1b[1;35m--- Variable and Alias Management ---\x1b[0m\n");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH,
-         "export [VNAME] [VAL]", "Set an environment variable.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "set [VNAME]",
-         "Set an environment variable.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "unset [VNAME]",
-         "Remove an environment variable.");
-  printf(
-      "\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "alias [ALIAS] [CMD]",
-      "Create a command alias (use single quotes for commands with spaces).");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH,
-         "alias [ALIAS]='[CMD]'",
-         "Alternative alias syntax for complex commands.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "unalias [ALIAS]",
-         "Remove a defined alias.");
-
-  printf("\n\x1b[1;35m--- System and Utility Commands ---\x1b[0m\n");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "whoami",
-         "Print the effective username.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH,
-         "uname opt[-s/-n/-r/-v/-m/-d]",
-         "Print system information (name, version, etc.).");
-  printf(
-      "\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "sleep [time][s/m/h]",
-      "Pause execution for a specified duration (seconds, minutes, or hours).");
-
-  printf("\n\x1b[1;35m--- I/O Redirection ---\x1b[0m\n");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] > [filename]",
-         "Truncate output to file, create if not found.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH,
-         "[CMD] >> [filename]", "Append output to file, create if not found.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH, "[CMD] < [filename]",
-         "Input from file to command.");
-  printf("\x1b[1;36m%-*s\x1b[1;37m%s\n\x1b[0m", CMD_WIDTH,
-         "[CMD] << [filename]", "Heredoc EOF.");
-
-  printf("\n");
-
-  fflush(stdout);
   return 0;
 }
 
@@ -506,32 +350,22 @@ int bg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 }
 
 int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
   if (!argv || !argv[0])
-    return -1;
+    return 0;
 
   bool newline = true;
   int i = 1;
-  if (argv[i] && argv[i][0] == '-' && argv[i][1] == 'n' && argv[i][2] == '\0') {
+  if (argv[i] && strcmp(argv[i], "-n") == 0) {
     newline = false;
     i++;
   }
-
   for (; argv[i]; i++) {
     fputs(argv[i], stdout);
     if (argv[i + 1])
       putchar(' ');
   }
-  if (newline) {
-    while (write(1, "\n", 1) < 0) {
-      if (errno == EINTR)
-        continue;
-      else
-        return -1;
-    }
-  }
-
-  fflush(stdout);
+  if (newline)
+    putchar('\n');
 
   return 0;
 }
@@ -586,26 +420,51 @@ int stty_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
 int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return -1; }
 
-int cond_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-  if (strcmp(argv[4], "]") != 0) {
-    fprintf(stderr, "\nmsh: expected closing bracket");
-    return -1;
+int test_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  int argc = 0;
+  while (argv[argc])
+    argc++;
+
+  if (argc < 2 || strcmp(argv[argc - 1], "]") != 0) {
+    fprintf(stderr, "msh: expected ']'\n");
+    return 2;
   }
 
-  if (strcmp(argv[2], "-lt") == 0) {
-    return (atoi(argv[1]) < atoi(argv[3])) ? 0 : 1;
-  } else if (strcmp(argv[2], "-gt") == 0) {
-    return (atoi(argv[1]) > atoi(argv[3])) ? 0 : 1;
-  } else if (strcmp(argv[2], "-eq") == 0) {
-    return (atoi(argv[1]) == atoi(argv[3])) ? 0 : 1;
-  } else if (strcmp(argv[2], "-lte") == 0) {
-    return (atoi(argv[1]) <= atoi(argv[3])) ? 0 : 1;
-  } else if (strcmp(argv[2], "-gte") == 0) {
-    return (atoi(argv[1]) >= atoi(argv[3])) ? 0 : 1;
+  if (argc == 2)
+    return 1;
+  if (argc == 3)
+    return (argv[1] && strlen(argv[1]) > 0) ? 0 : 1;
+
+  if (argc == 5) {
+    char *left = argv[1];
+    char *op = argv[2];
+    char *right = argv[3];
+
+    int val1 = atoi(left);
+    int val2 = atoi(right);
+
+    if (strcmp(op, "-lt") == 0)
+      return (val1 < val2) ? 0 : 1;
+    if (strcmp(op, "-gt") == 0)
+      return (val1 > val2) ? 0 : 1;
+    if (strcmp(op, "-eq") == 0)
+      return (val1 == val2) ? 0 : 1;
+    if (strcmp(op, "-le") == 0)
+      return (val1 <= val2) ? 0 : 1;
+    if (strcmp(op, "-ge") == 0)
+      return (val1 >= val2) ? 0 : 1;
+    if (strcmp(op, "==") == 0)
+      return (strcmp(left, right) == 0) ? 0 : 1;
+    if (strcmp(op, "!=") == 0)
+      return (strcmp(left, right) != 0) ? 0 : 1;
   }
 
-  return -1;
+  fprintf(stderr, "msh: test: too many arguments or unknown operator\n");
+  return 2;
 }
 
 static void print_signals_list(void) {
@@ -690,65 +549,44 @@ int kill_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
-/**
- * @brief Builtin export command - set environment variable
- * @param node AST node containing command arguments
- * @param shell Shell context
- * @return 0 on success, 1 on failure
- */
 int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
   if (argv[1] == NULL) {
     return 0;
   }
 
   char *str = argv[1];
-  int eq_idx = -1;
-  for (int i = 0; str[i]; i++) {
-    if (str[i] == '=') {
-      eq_idx = i;
-      break;
-    }
-  }
-
+  char *eq_ptr = strchr(str, '=');
   char *var_name = NULL;
   char *var_val = NULL;
 
-  if (eq_idx == -1) {
+  if (eq_ptr == NULL) {
     var_name = strdup(str);
-    int local_idx = getenv_local(shell->env, var_name);
-
-    if (local_idx >= 0) {
-      char *entry = shell->env[local_idx];
-      char *equals_ptr = strchr(entry, '=');
-      var_val = strdup(equals_ptr + 1);
+    t_ht_node *nd = ht_find(&shell->env, var_name);
+    if (nd) {
+      t_env_entry *entry = (t_env_entry *)nd->value;
+      var_val = strdup(entry->val);
     } else {
       var_val = strdup("");
     }
   } else {
-    var_name = strndup(str, eq_idx);
-    var_val = strdup(str + eq_idx + 1);
+    size_t name_len = eq_ptr - str;
+    var_name = strndup(str, name_len);
+    var_val = strdup(eq_ptr + 1);
   }
 
   if (!var_name || !var_val) {
-    perror("msh: malloc");
     free(var_name);
     free(var_val);
     return -1;
   }
-
-  if (setenv(var_name, var_val, 1) == -1) {
-    perror("msh: setenv");
-  }
-
-  if (add_to_env(shell, var_name, var_val) == -1) {
-    fprintf(stderr, "msh: add_to_env failed\n");
-  }
+  add_to_env(shell, var_name, var_val);
+  setenv(var_name, var_val, 1);
 
   free(var_name);
   free(var_val);
   return 0;
 }
+
 /**
  * @brief Builtin unset command - remove environment variable
  * @param node AST node containing command arguments
@@ -756,66 +594,29 @@ int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
  * @return 0 on success, 1 on failure
  */
 int unset_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
   if (argv[1] == NULL) {
-    fprintf(stderr, "\nmsh: usage: unset <VAR>");
-    return -1;
-  } else if (unsetenv(argv[1]) == -1) {
-    perror("\nunsetenv fail");
+    fprintf(stderr, "msh: usage: unset <VAR>\n");
     return -1;
   }
 
-  if (remove_from_env(shell, argv[1]) == -1) {
-    fprintf(stderr, "\nmsh: var not found %s", argv[1]);
-    return -1;
-  }
+  remove_from_env(&shell->env, argv[1]);
+  unsetenv(argv[1]);
 
   return 0;
 }
 
-int set_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
-  if (argv[1] == NULL) {
-    fprintf(stderr, "msh: usage: set <VAR>=<VAL>\n");
-    return -1;
-  }
-
-  char *str = argv[1];
-  int eq_idx = -1;
-  for (int i = 0; str[i]; i++) {
-    if (str[i] == '=') {
-      eq_idx = i;
-      break;
-    }
-  }
-
-  if (eq_idx == -1) {
-    fprintf(stderr, "msh: set: %s: invalid assignment\n", str);
-    return -1;
-  }
-
-  char *var_name = strndup(str, eq_idx);
-  char *var_val = strdup(str + eq_idx + 1);
-
-  if (!var_name || !var_val) {
-    perror("msh: malloc");
-    if (var_name)
-      free(var_name);
-    if (var_val)
-      free(var_val);
-    return -1;
-  }
+  char *eq_ptr = strchr(argv[0], '=');
+  char *var_name = strndup(argv[0], eq_ptr - argv[0]);
+  char *var_val = strdup(eq_ptr + 1);
 
   if (add_to_env(shell, var_name, var_val) == -1) {
-    fprintf(stderr, "msh: failed to set variable %s\n", var_name);
-    free(var_name);
-    free(var_val);
-    return -1;
+    fprintf(stderr, "msh: add_to_env failed\n");
   }
 
   free(var_name);
   free(var_val);
-
   return 0;
 }
 
@@ -827,7 +628,6 @@ int set_builtin(t_ast_n *node, t_shell *shell, char **argv) {
  */
 int clear_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   HANDLE_WRITE_FAIL_FATAL(0, "\033[2J\033[H", 7, NULL);
-  fflush(stdout);
   return 0;
 }
 
@@ -840,7 +640,7 @@ int clear_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 int alias_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   if (argv[1] == NULL) {
-    print_alias_ht(&(shell->aliases));
+    print_aliases(&shell->aliases);
     return 0;
   } else if (argv[2] != NULL) {
     fprintf(stderr, "\nmsh: bad assignment");
@@ -860,7 +660,7 @@ int alias_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   char *alias = strndup(argv[1], eq_idx);
   size_t alias_len = strlen(argv[1]) - eq_idx - 1;
   char *aliased_cmd = strndup(argv[1] + eq_idx + 1, alias_len);
-  t_alias_ht_node *n = insert_alias(&(shell->aliases), alias, aliased_cmd);
+  t_ht_node *n = insert_alias(&(shell->aliases), alias, aliased_cmd);
   free(aliased_cmd);
   free(alias);
   if (!n) {
@@ -880,16 +680,15 @@ int alias_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 int unalias_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   if (argv[1] == NULL) {
-    printf("\nUnalias what?");
+    printf("\nmsh: unalias <alias>");
     return 0;
   }
   if (strcmp(argv[1], "all") == 0) {
-    flush_alias_ht(&(shell->aliases));
-    printf("\nFlushed aliases.");
+    ht_flush(&shell->aliases, free_alias);
     return 0;
   }
-  if (hash_delete_alias(&(shell->aliases), argv[1]) == -1) {
-    printf("\nUnalias call failed: Alias not found.");
+  if (ht_delete(&(shell->aliases), argv[1], NULL) == -1) {
+    printf("\nmsh: no such alias '%s'", argv[1]);
   }
 
   return 0;
@@ -924,7 +723,7 @@ int exit_builtin(t_ast_n *node, t_shell *shell, char **argv) {
  */
 int env_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
-  char **env = shell->env;
+  char **env = flatten_env(&shell->env, &shell->arena);
   int i = 0;
   while (env[i] != NULL) {
     printf("\n%s", env[i]);

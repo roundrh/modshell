@@ -20,6 +20,8 @@ typedef struct s_arena {
   t_region *curr;
 } t_arena;
 
+void arena_rollback(t_arena *a, t_region *p, size_t off);
+void arena_get_mark(t_arena *a, t_region **p, size_t *off);
 void *arena_realloc(t_arena *a, void *optr, size_t nsize, size_t osize);
 void *arena_alloc(t_arena *a, size_t s);
 void arena_reset(t_arena *a);

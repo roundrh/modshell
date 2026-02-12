@@ -1,11 +1,10 @@
 #ifndef SHELL_H
 #define SHELL_H
 
-#include "alias_ht.h"
 #include "arena.h"
 #include "ast.h"
-#include "builtins_ht.h"
 #include "dll.h"
+#include "hashtable.h"
 #include "jobs.h"
 #include "lexer.h"
 #include "sigstruct.h"
@@ -15,7 +14,6 @@
  * @file shell.h
  *
  * Module declares shell struct.
- * @note mainly to avoid recursive include for include guards.
  */
 
 #define ENV_EXPORTED (1 << 0)
@@ -23,7 +21,6 @@
 #define ENV_HAS_VINT (1 << 2)
 
 typedef struct s_env_entry {
-
   char *name;
   char *val;
   long long vint;
@@ -46,9 +43,8 @@ typedef struct shell_s {
   int is_interactive;
   int job_control_flag;
 
-  char **env;
-  size_t env_count;
-  size_t env_cap;
+  t_hashtable bins;
+  t_hashtable env;
 
   t_token_stream token_stream;
 
@@ -71,8 +67,8 @@ typedef struct shell_s {
   t_ast ast; //
 
   t_dll history;
-  t_hashtable builtins;      //
-  t_alias_hashtable aliases; //
+  t_hashtable builtins; //
+  t_hashtable aliases;  //
 
   int last_exit_status; //
   char *sh_name;        //

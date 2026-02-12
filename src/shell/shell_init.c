@@ -1,5 +1,5 @@
 #include "shell_init.h"
-#include "lexer.h"
+#include <sys/sysmacros.h>
 
 /**
  * @file shell_init.c
@@ -7,6 +7,18 @@
  * @brief Module contains implementations of functions in shell_init.h
  *
  */
+
+t_ht_node *insert_builtin(t_hashtable *ht, const char *name,
+                          t_builtin_func fn) {
+  t_builtin *b = malloc(sizeof(*b));
+  if (!b) {
+    perror("malloc");
+    exit(12);
+  }
+
+  b->fn = fn;
+  return ht_insert(ht, name, b);
+}
 
 /**
  * @brief populate built ins hashtable with functions
@@ -18,153 +30,67 @@
  * unforkable commands in a pipe.
  */
 static int push_built_ins(t_shell *shell) {
-
-  if (insert_builtin(&(shell->builtins), "exit", exit_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "exit", exit_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "stty", stty_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "stty", stty_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "cd", cd_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "cd", cd_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "alias", alias_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "alias", alias_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "fg", fg_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "unalias", unalias_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "bg", bg_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "fg", fg_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "jobs", jobs_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "bg", bg_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "kill", kill_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "jobs", jobs_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "unalias", unalias_builtin, 0) ==
-      NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "kill", kill_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "export", export_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "export", export_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "unset", unset_builtin, 0) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "unset", unset_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "clear", clear_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "clear", clear_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "env", env_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "env", env_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "history", history_builtin, 1) ==
-      NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "history", history_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "help", help_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "v", v_builtin))
     return -1;
-  }
 
-  if (insert_builtin(&(shell->builtins), "set", set_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+  if (!insert_builtin(&shell->builtins, "[", test_builtin))
     return -1;
-  }
-  if (insert_builtin(&(shell->builtins), "[", cond_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+
+  if (!insert_builtin(&shell->builtins, "true", true_builtin))
     return -1;
-  }
-  if (insert_builtin(&(shell->builtins), "true", true_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+
+  if (!insert_builtin(&shell->builtins, "false", false_builtin))
     return -1;
-  }
-  if (insert_builtin(&(shell->builtins), "false", false_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
+
+  if (!insert_builtin(&shell->builtins, "echo", echo_builtin))
     return -1;
-  }
-
-  if (insert_builtin(&(shell->builtins), "echo", echo_builtin, 1) == NULL) {
-    flush_builtin_ht(&(shell->builtins));
-    return -1;
-  }
-
-  return 0;
-}
-/**
- * @brief help function to copy environ to shell->env
- * @param shell pointer to shell struct
- *
- * Deep copies extern char** environ to env in shell state struct
- *
- * @note mallocd env freed in shell_cleanup.h, called atexit()
- */
-static int copy_environ_to_env(t_shell *shell) {
-
-  size_t count = 0;
-  while (environ[count] != NULL) {
-    count++;
-  }
-
-  shell->env_count = count;
-  shell->env_cap = count * BUF_GROWTH_FACTOR;
-
-  shell->env = (char **)malloc(sizeof(char *) * (shell->env_cap + 1));
-  if (!shell->env) {
-    perror("malloc shell->env fail");
-    return -1;
-  }
-
-  for (size_t i = 0; i < shell->env_cap; i++)
-    shell->env[i] = NULL;
-
-  for (size_t i = 0; i < count; i++) {
-
-    shell->env[i] = strdup(environ[i]);
-    if (!shell->env[i]) {
-      perror("strdup fail copying environ");
-      for (int j = 0; j < i; j++) {
-        free(shell->env[j]);
-      }
-      free(shell->env);
-      return -1;
-    }
-  }
-  shell->env[count] = NULL;
 
   return 0;
 }
 
-static int push_def_aliases(t_alias_hashtable *ht) {
+static int push_def_aliases(t_hashtable *ht) {
   insert_alias(ht, "l", "ls -lAh");
   insert_alias(ht, "ls", "ls --color=tty");
   insert_alias(ht, "fetch", "neofetch");
@@ -262,6 +188,23 @@ void get_shell_prompt(t_shell *shell) {
 
   shell->prompt_len = visible_len(shell->prompt);
 }
+
+void init_env_from_environ(t_shell *shell) {
+  extern char **environ;
+
+  ht_init(&shell->env);
+
+  for (int i = 0; environ[i]; i++) {
+    char *entry = strdup(environ[i]);
+    char *eq = strchr(entry, '=');
+    if (eq) {
+      *eq = '\0';
+      add_to_env(shell, entry, eq + 1);
+    }
+    free(entry);
+  }
+}
+
 /**
  * @brief initialize shell state to null or calloc values
  * @param shell pointer to shell struct
@@ -344,8 +287,8 @@ int init_shell_state(t_shell *shell) {
 
   init_ast(&(shell->ast));
 
-  init_builtin_hashtable(&(shell->builtins));
-  init_alias_hashtable(&(shell->aliases));
+  ht_init(&(shell->builtins));
+  ht_init(&(shell->aliases));
   push_def_aliases(&(shell->aliases));
 
   init_dll(&(shell->history));
@@ -365,13 +308,7 @@ int init_shell_state(t_shell *shell) {
     return -1;
   }
 
-  shell->env = NULL;
-
-  if (copy_environ_to_env(shell) == -1) {
-    perror("error copying environ to shell env");
-    shell->env = NULL;
-    return -1;
-  }
+  init_env_from_environ(shell);
 
   return 0;
 }

@@ -1,4 +1,5 @@
 #include "executor.h"
+#include "builtins.h"
 #include "lexer.h"
 #include <signal.h>
 #include <stdlib.h>
@@ -322,7 +323,8 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
 
     set_global_shell_ptr_chld(shell);
 
-    int exit_status = builtin_ptr->builtin_ptr(node, shell, argv);
+    t_builtin *b = (t_builtin *)builtin_ptr->value;
+    int exit_status = b->fn(node, shell, argv);
     _exit(exit_status);
   } else if (shell->job_control_flag) {
 
@@ -345,6 +347,22 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
   return pid;
 }
 
+int is_set_var(char **argv) {
+  if (argv[1] != NULL)
+    return 0;
+  char *a = argv[0];
+  int eqcnt = 0;
+  while (a && *a != '\0') {
+    if (*a == '=')
+      eqcnt++;
+    a++;
+  }
+  if (eqcnt != 1)
+    return 0;
+  else
+    return 1;
+}
+
 /**
  * @brief executes simple command in node
  * @param node pointer to ast node
@@ -354,9 +372,12 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
 static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
                                  int is_pipeline_child, int is_subshell,
                                  t_ast_n *pipeline, bool flow) {
-
   if (!node)
     return -1;
+
+  t_region *p;
+  size_t off;
+  arena_get_mark(&shell->arena, &p, &off);
 
   char **argv = NULL;
   t_err_type err_ret = expand_make_argv(shell, &argv, node->tok_start,
@@ -365,17 +386,26 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
     perror("fatal err expanding argv");
     exit(1);
   } else if (argv == NULL || argv[0] == NULL) {
+    arena_rollback(&shell->arena, p, off);
     return 0;
   }
   job->command = strdup(argv[0]);
 
-  t_ht_node *builtin_imp = hash_find_builtin(&shell->builtins, argv[0]);
+  t_ht_node *builtin_imp = ht_find(&shell->builtins, argv[0]);
+  if (builtin_imp && strcmp(builtin_imp->key, "v") == 0)
+    builtin_imp = NULL;
+  else if (!builtin_imp && is_set_var(argv)) {
+    builtin_imp = ht_find(&shell->builtins, "v");
+  }
+
   if (builtin_imp == NULL) {
     pid_t ret_pid = exec_extern_cmd(shell, node, job, is_pipeline_child,
                                     is_subshell, pipeline, argv);
+    arena_rollback(&shell->arena, p, off);
     return ret_pid;
   } else if (job->position == P_FOREGROUND) {
-    job->last_exit_status = builtin_imp->builtin_ptr(node, shell, argv);
+    t_builtin *b = (t_builtin *)builtin_imp->value;
+    job->last_exit_status = b->fn(node, shell, argv);
     shell->last_exit_status = job->last_exit_status;
   } else {
     exec_bg_builtin(node, shell, job, pipeline, builtin_imp, argv, is_subshell);
@@ -383,6 +413,8 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
   /* pid 0 on built in execution -- denotes no fork -- shell last exit status
    * set */
+
+  arena_rollback(&shell->arena, p, off);
   return 0;
 }
 
@@ -780,10 +812,10 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       shell->last_exit_status = WEXITSTATUS(status);
       if (WIFSIGNALED(status))
         shell->last_exit_status = WTERMSIG(status) + 128;
-    }
 
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-      ;
+      while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+    }
 
     if (!subshell) {
       del_job(shell, job->job_id, true);
@@ -963,7 +995,7 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   }
 
   init_token_stream(token_stream, &shell->arena);
-  t_alias_hashtable *aliases = &(shell->aliases);
+  t_hashtable *aliases = &(shell->aliases);
   if (lex_command_line(cmd_buf, token_stream, aliases, 0, &shell->arena) ==
       -1) {
     return -1;

@@ -22,16 +22,13 @@ void cleanup_global_shell_ptr(void) {
   }
 }
 
-static char *append_script_line(char *old_buf, const char *new_line) {
+static char *append_script_line(char *old_buf, const char *new_line,
+                                t_arena *a) {
 
   size_t old_len = old_buf ? strlen(old_buf) : 0;
   size_t new_len = strlen(new_line);
 
-  char *new_buf = realloc(old_buf, old_len + new_len + 1);
-  if (!new_buf) {
-    perror("realloc script buf");
-    return old_buf;
-  }
+  char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len);
 
   memcpy(new_buf + old_len, new_line, new_len + 1);
   return new_buf;
@@ -95,7 +92,7 @@ int main(int argc, char **argv) {
 
     if (getline(&line, &cap, script) != -1) {
       if (strncmp(line, "#!", 2) != 0)
-        total_buf = append_script_line(total_buf, line);
+        total_buf = append_script_line(total_buf, line, &shell_state.arena);
     }
 
     while (getline(&line, &cap, script) != -1) {
@@ -105,22 +102,18 @@ int main(int argc, char **argv) {
 
       if (*p == '#' || *p == '\0')
         continue;
-      total_buf = append_script_line(total_buf, line);
+      total_buf = append_script_line(total_buf, line, &shell_state.arena);
 
       if (parse_and_execute(&total_buf, &shell_state, &shell_state.token_stream,
                             true) == 0) {
-        free(total_buf);
         total_buf = NULL;
         shell_state.last_exit_status = 0;
+        arena_reset(&shell_state.arena);
       }
-
-      arena_reset(&shell_state.arena);
-      shell_state.token_stream.tokens_arr_len = 0;
     }
 
     if (total_buf != NULL) {
       fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
-      free(total_buf);
       total_buf = NULL;
     }
 

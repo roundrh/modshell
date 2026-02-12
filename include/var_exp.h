@@ -2,7 +2,9 @@
 #define VAR_EXP_H
 
 #include "ast.h"
+#include "builtins.h"
 #include "glob.h"
+#include "hashtable.h"
 #include "lexer.h"
 #include "limits.h"
 #include "shell.h"
@@ -105,9 +107,11 @@ typedef struct s_exp_map {
   t_exp_handler handler; /// Function pointer to handler
 } t_exp_map;
 
-int add_to_env(t_shell *shell, char *var, char *val);
-int getenv_local_idx(char **env, const char *var_name);
-char *getenv_local(char **env, const char *var_name, t_arena *a);
+int add_to_env(t_shell *shell, const char *var, const char *val);
+char *getenv_local(t_hashtable *env, const char *var_name, t_arena *a);
+char **flatten_env(t_hashtable *env, t_arena *a);
+void remove_from_env(t_hashtable *env, const char *var_name);
+void print_env(t_hashtable *env, bool exported);
 
 /**
  * @brief expands "$?" last shell exit status

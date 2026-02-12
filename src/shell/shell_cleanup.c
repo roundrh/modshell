@@ -1,4 +1,6 @@
 #include "shell_cleanup.h"
+#include "alias.h"
+#include "builtins.h"
 
 /**
  * @file shell_cleanup.c
@@ -13,6 +15,10 @@
  * refer to shell.h.
  */
 void cleanup_shell(t_shell *shell, int is_chld) {
+
+  ht_flush(&shell->aliases, free_alias);
+  ht_flush(&shell->builtins, free_builtin);
+  ht_flush(&shell->env, free_env_entry);
 
   arena_free(&shell->arena);
   if (shell->prompt)
@@ -38,9 +44,6 @@ void cleanup_shell(t_shell *shell, int is_chld) {
     perror("shell sigtable");
   }
 
-  flush_builtin_ht(&(shell->builtins));
-  flush_alias_ht(&(shell->aliases));
-
   shell->last_exit_status = 0;
 
   free_dll(&(shell->history));
@@ -48,17 +51,6 @@ void cleanup_shell(t_shell *shell, int is_chld) {
   if (shell->sh_name) {
     free(shell->sh_name);
     shell->sh_name = NULL;
-  }
-
-  if (shell->env) {
-
-    char **env_ptr = shell->env;
-
-    for (size_t i = 0; i < shell->env_count; i++) {
-      free(env_ptr[i]);
-    }
-    free(shell->env);
-    shell->env = NULL;
   }
 
   if (isatty(shell->tty_fd) && shell->is_interactive && !is_chld) {

@@ -30,6 +30,28 @@ void *arena_realloc(t_arena *a, void *optr, size_t nsize, size_t osize) {
   return nptr;
 }
 
+void arena_rollback(t_arena *a, t_region *p, size_t off) {
+  if (!p) {
+    arena_reset(a);
+    return;
+  }
+  t_region *r = p->next;
+  while (r) {
+    t_region *next = r->next;
+    free(r);
+    r = next;
+  }
+
+  a->curr = p;
+  a->curr->off = off;
+  a->curr->next = NULL;
+}
+
+void arena_get_mark(t_arena *a, t_region **p, size_t *off) {
+  *p = a->curr;
+  *off = (*p)->off;
+}
+
 void *arena_alloc(t_arena *a, size_t s) {
 
   if (s == 0)

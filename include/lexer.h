@@ -4,8 +4,9 @@
 #define INITIAL_TOKS_ARR_CAP 32
 #define BUF_GROWTH_FACTOR 2
 
-#include "alias_ht.h"
+#include "alias.h"
 #include "arena.h"
+#include "hashtable.h"
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -55,6 +56,6 @@ typedef struct s_token_stream {
 
 int init_token_stream(t_token_stream *token_stream, t_arena *a);
 int lex_command_line(char **cmd_buf, t_token_stream *tokens,
-                     t_alias_hashtable *aliases, int depth, t_arena *a);
+                     t_hashtable *aliases, int depth, t_arena *a);
 
 #endif // ! LEXER_H

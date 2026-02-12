@@ -2,7 +2,6 @@
 #define EXECUTOR_H
 
 #include "builtins.h"
-#include "builtins_ht.h"
 #include "handle_io_redir.h"
 #include "job_handler.h"
 #include "jobs_init.h"

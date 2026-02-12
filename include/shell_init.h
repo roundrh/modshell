@@ -1,13 +1,16 @@
 #ifndef SHELL_INIT_H
 #define SHELL_INIT_H
 
+#include "alias.h"
 #include "ast_init.h"
 #include "builtins.h"
-#include "builtins_ht.h"
+#include "hashtable.h"
+#include "lexer.h"
 #include "shell.h"
 #include "sigtable_init.h"
 #include "terminal_control.h"
 #include "userinp.h"
+#include "var_exp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
