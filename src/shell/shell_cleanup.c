@@ -2,6 +2,11 @@
 #include "alias.h"
 #include "builtins.h"
 
+void free_bin(void *value) {
+  if (value)
+    free(value);
+}
+
 /**
  * @file shell_cleanup.c
  * @brief implementations of cleanup for shell struct
@@ -19,6 +24,7 @@ void cleanup_shell(t_shell *shell, int is_chld) {
   ht_flush(&shell->aliases, free_alias);
   ht_flush(&shell->builtins, free_builtin);
   ht_flush(&shell->env, free_env_entry);
+  ht_flush(&shell->bins, free_bin);
 
   arena_free(&shell->arena);
   if (shell->prompt)

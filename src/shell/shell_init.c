@@ -189,7 +189,48 @@ void get_shell_prompt(t_shell *shell) {
   shell->prompt_len = visible_len(shell->prompt);
 }
 
-void init_env_from_environ(t_shell *shell) {
+static void hash_directory(t_hashtable *bins, char *dir_path) {
+  DIR *dir = opendir(dir_path);
+  struct dirent *entry;
+  char full_path[4096];
+
+  if (!dir)
+    return;
+
+  while ((entry = readdir(dir)) != NULL) {
+    if (entry->d_name[0] == '.')
+      continue;
+    snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
+    if (access(full_path, X_OK) == 0) {
+      ht_insert(bins, entry->d_name, strdup(full_path));
+    }
+  }
+  closedir(dir);
+}
+void refresh_path_bins(t_hashtable *bins) {
+  char *path_env = getenv("PATH");
+  if (!path_env)
+    return;
+
+  ht_flush(bins, free);
+
+  char *path_copy = strdup(path_env);
+  char *dir = strtok(path_copy, ":");
+
+  while (dir) {
+    hash_directory(bins, dir);
+    dir = strtok(NULL, ":");
+  }
+
+  free(path_copy);
+}
+
+void init_bins(t_hashtable *bins) {
+  ht_init(bins);
+  refresh_path_bins(bins);
+}
+
+void init_env(t_shell *shell) {
   extern char **environ;
 
   ht_init(&shell->env);
@@ -308,7 +349,8 @@ int init_shell_state(t_shell *shell) {
     return -1;
   }
 
-  init_env_from_environ(shell);
+  init_env(shell);
+  init_bins(&shell->bins);
 
   return 0;
 }

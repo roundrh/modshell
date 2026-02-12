@@ -265,6 +265,19 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     init_ch_sigtable(&(shell->shell_sigtable));
     set_global_shell_ptr_chld(shell);
 
+    t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
+    if (!bin_node) {
+      refresh_path_bins(&shell->bins);
+    }
+
+    char **env = flatten_env(&shell->env, &shell->arena);
+
+    if (bin_node) {
+      execve((char *)bin_node->value, argv, env);
+    } else if (strchr(argv[0], '/')) {
+      execve(argv[0], argv, env);
+    }
+
     execvp(argv[0], argv);
     fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
     _exit(127);

@@ -11,6 +11,7 @@
 #include "terminal_control.h"
 #include "userinp.h"
 #include "var_exp.h"
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
@@ -66,15 +67,7 @@
  */
 extern char **environ;
 
-// typedef struct s_env_entry {
-//
-//   char *name;
-//   char *val;
-//   long num;
-//   bool exported;
-//   bool has_num;
-//
-// } t_env_entry;
+void refresh_path_bins(t_hashtable *bins);
 
 void get_shell_prompt(t_shell *shell);
 /**
