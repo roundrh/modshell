@@ -40,6 +40,9 @@ typedef struct shell_s {
   char **argv;
   int argc;
 
+  const char *path;
+  size_t path_len;
+
   int is_interactive;
   int job_control_flag;
 

@@ -207,27 +207,27 @@ static void hash_directory(t_hashtable *bins, char *dir_path) {
   }
   closedir(dir);
 }
-void refresh_path_bins(t_hashtable *bins) {
-  char *path_env = getenv("PATH");
-  if (!path_env)
+void refresh_path_bins(t_shell *shell) {
+  if (!shell->path)
     return;
 
-  ht_flush(bins, free);
+  ht_flush(&shell->bins, free);
 
-  char *path_copy = strdup(path_env);
+  char *path_copy = arena_alloc(&shell->arena, shell->path_len + 1);
+  memcpy(path_copy, shell->path, shell->path_len);
+  path_copy[shell->path_len] = '\0';
+
   char *dir = strtok(path_copy, ":");
 
   while (dir) {
-    hash_directory(bins, dir);
+    hash_directory(&shell->bins, dir);
     dir = strtok(NULL, ":");
   }
-
-  free(path_copy);
 }
 
-void init_bins(t_hashtable *bins) {
-  ht_init(bins);
-  refresh_path_bins(bins);
+void init_bins(t_shell *shell) {
+  ht_init(&shell->bins);
+  refresh_path_bins(shell);
 }
 
 void init_env(t_shell *shell) {
@@ -350,7 +350,14 @@ int init_shell_state(t_shell *shell) {
   }
 
   init_env(shell);
-  init_bins(&shell->bins);
+  init_bins(shell);
+
+  shell->path = getenv_local_ref(&shell->env, "PATH");
+  if (shell->path) {
+    shell->path_len = strlen(shell->path);
+  } else {
+    shell->path_len = 0;
+  }
 
   return 0;
 }

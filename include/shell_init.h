@@ -67,7 +67,7 @@
  */
 extern char **environ;
 
-void refresh_path_bins(t_hashtable *bins);
+void refresh_path_bins(t_shell *shell);
 
 void get_shell_prompt(t_shell *shell);
 /**

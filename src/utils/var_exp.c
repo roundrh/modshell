@@ -47,6 +47,18 @@ char *getenv_local(t_hashtable *env, const char *var_name, t_arena *a) {
   return copy;
 }
 
+const char *getenv_local_ref(t_hashtable *env, const char *var_name) {
+  t_ht_node *node = ht_find(env, var_name);
+  if (!node)
+    return NULL;
+
+  t_env_entry *entry = (t_env_entry *)node->value;
+  if (!entry || !entry->val)
+    return NULL;
+
+  return entry->val;
+}
+
 char **flatten_env(t_hashtable *env, t_arena *a) {
   char **envp = (char **)arena_alloc(a, sizeof(char *) * (env->count + 1));
   size_t env_idx = 0;

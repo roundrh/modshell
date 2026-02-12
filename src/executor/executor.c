@@ -1,6 +1,7 @@
 #include "executor.h"
 #include "builtins.h"
 #include "lexer.h"
+#include "shell_init.h"
 #include <signal.h>
 #include <stdlib.h>
 
@@ -267,7 +268,7 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
 
     t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
     if (!bin_node) {
-      refresh_path_bins(&shell->bins);
+      refresh_path_bins(shell);
     }
 
     char **env = flatten_env(&shell->env, &shell->arena);
@@ -281,7 +282,6 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     execvp(argv[0], argv);
     fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
     _exit(127);
-
   } else if (shell->job_control_flag) {
 
     if (setpgid(pid, job->pgid) == -1) {
@@ -392,6 +392,25 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
   size_t off;
   arena_get_mark(&shell->arena, &p, &off);
 
+  const char *cur_path = getenv_local_ref(&shell->env, "PATH");
+  size_t plen = 0;
+  if (!cur_path && shell->path) {
+    shell->path = NULL;
+    refresh_path_bins(shell);
+  } else if (cur_path) {
+    plen = strlen(cur_path);
+  }
+  if (cur_path && shell->path) {
+    if (plen != shell->path_len) {
+      shell->path = cur_path;
+      shell->path_len = plen;
+      refresh_path_bins(shell);
+    } else if (strcmp(shell->path, cur_path) != 0) {
+      shell->path = cur_path;
+      refresh_path_bins(shell);
+    }
+  }
+
   char **argv = NULL;
   t_err_type err_ret = expand_make_argv(shell, &argv, node->tok_start,
                                         node->tok_segment_len, &shell->arena);
@@ -426,7 +445,6 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
   /* pid 0 on built in execution -- denotes no fork -- shell last exit status
    * set */
-
   arena_rollback(&shell->arena, p, off);
   return 0;
 }
