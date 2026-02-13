@@ -4,7 +4,23 @@
  */
 
 #include "builtins.h"
+#include "shell.h"
+#include "shell_init.h"
 #include "var_exp.h"
+#include <linux/limits.h>
+
+static void check_rehash(t_shell *shell, const char *var_name) {
+  if (strcmp(var_name, "PATH") == 0) {
+    shell->path = getenv_local_ref(&shell->env, "PATH");
+    if (shell->path) {
+      shell->path_len = strlen(shell->path);
+    } else {
+      shell->path_len = 0;
+    }
+
+    refresh_path_bins(shell);
+  }
+}
 
 static int update_no_noti_jobs(t_shell *shell) {
 
@@ -153,25 +169,34 @@ int wait_for_foreground_job(t_job *job, t_shell *shell) {
  * @return 0 on success, 1 on failure
  */
 int cd_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  char old_path[PATH_MAX];
+  char new_path[PATH_MAX];
+  const char *target = NULL;
+
+  if (getcwd(old_path, sizeof(old_path)) == NULL) {
+    old_path[0] = '\0';
+  }
 
   if (argv[1] == NULL) {
-    char *ptr = getenv("HOME");
-    if (!ptr) {
-      perror("208: err getting home dir");
-      return -1;
-    }
-    int chdir_status = chdir(ptr);
-    if (chdir_status == -1) {
-      fprintf(stderr, "chdir fail\n");
+    target = getenv_local_ref(&shell->env, "HOME");
+    if (!target) {
+      fprintf(stderr, "msh: cd: HOME not set\n");
       return -1;
     }
   } else {
-    char *ptr = argv[1];
-    int chdir_status = chdir(ptr);
-    if (chdir_status == -1) {
-      fprintf(stderr, "msh: cd: file not found\n");
-      return -1;
+    target = argv[1];
+  }
+
+  if (chdir(target) == -1) {
+    perror("msh: cd");
+    return -1;
+  }
+
+  if (getcwd(new_path, sizeof(new_path)) != NULL) {
+    if (old_path[0] != '\0') {
+      add_to_env(shell, "OLDPWD", old_path);
     }
+    add_to_env(shell, "PWD", new_path);
   }
 
   return 0;
@@ -417,12 +442,21 @@ int stty_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
-int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
-int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return -1; }
+int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (argv[1] == NULL)
+    return 0;
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+  t_ht_node *bin_node = ht_find(&shell->builtins, argv[1]);
+  if (bin_node) {
+    t_builtin *b = (t_builtin *)bin_node->value;
+    return b->fn(node, shell, &argv[1]);
+  }
+  fprintf(stderr, "msh: %s: not a shell builtin\n", argv[1]);
+  return -1;
+}
+
+int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
+int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 1; }
 
 int test_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   int argc = 0;
@@ -560,33 +594,55 @@ int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   char *var_val = NULL;
 
   if (eq_ptr == NULL) {
-    var_name = strdup(str);
+    size_t name_len = strlen(str);
+    var_name = arena_alloc(&shell->arena, name_len + 1);
+    if (!var_name)
+      return -1;
+    memcpy(var_name, str, name_len + 1);
+
     t_ht_node *nd = ht_find(&shell->env, var_name);
     if (nd) {
       t_env_entry *entry = (t_env_entry *)nd->value;
-      var_val = strdup(entry->val);
+      size_t val_len = strlen(entry->val);
+      var_val = arena_alloc(&shell->arena, val_len + 1);
+      if (!var_val)
+        return -1;
+      memcpy(var_val, entry->val, val_len + 1);
+
+      entry->flags |= ENV_EXPORTED;
     } else {
-      var_val = strdup("");
+      var_val = arena_alloc(&shell->arena, 1);
+      if (!var_val)
+        return -1;
+      var_val[0] = '\0';
     }
   } else {
     size_t name_len = eq_ptr - str;
-    var_name = strndup(str, name_len);
-    var_val = strdup(eq_ptr + 1);
+    size_t val_len = strlen(eq_ptr + 1);
+
+    var_name = arena_alloc(&shell->arena, name_len + 1);
+    var_val = arena_alloc(&shell->arena, val_len + 1);
+    if (!var_name || !var_val)
+      return -1;
+
+    memcpy(var_name, str, name_len);
+    var_name[name_len] = '\0';
+    memcpy(var_val, eq_ptr + 1, val_len + 1);
   }
 
-  if (!var_name || !var_val) {
-    free(var_name);
-    free(var_val);
+  if (add_to_env(shell, var_name, var_val) == -1) {
     return -1;
   }
-  add_to_env(shell, var_name, var_val);
-  setenv(var_name, var_val, 1);
 
-  free(var_name);
-  free(var_val);
+  t_ht_node *n = ht_find(&shell->env, var_name);
+  if (n) {
+    t_env_entry *e = (t_env_entry *)n->value;
+    e->flags |= ENV_EXPORTED;
+  }
+
+  check_rehash(shell, var_name);
   return 0;
 }
-
 /**
  * @brief Builtin unset command - remove environment variable
  * @param node AST node containing command arguments
@@ -600,23 +656,28 @@ int unset_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   }
 
   remove_from_env(&shell->env, argv[1]);
-  unsetenv(argv[1]);
 
+  check_rehash(shell, argv[1]);
   return 0;
 }
 
 int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
   char *eq_ptr = strchr(argv[0], '=');
-  char *var_name = strndup(argv[0], eq_ptr - argv[0]);
-  char *var_val = strdup(eq_ptr + 1);
+  if (!eq_ptr)
+    return -1;
 
-  if (add_to_env(shell, var_name, var_val) == -1) {
-    fprintf(stderr, "msh: add_to_env failed\n");
-  }
+  size_t name_len = eq_ptr - argv[0];
+  size_t val_len = strlen(eq_ptr + 1);
+  char *var_name = arena_alloc(&shell->arena, name_len + 1);
+  char *var_val = arena_alloc(&shell->arena, val_len + 1);
 
-  free(var_name);
-  free(var_val);
+  memcpy(var_name, argv[0], name_len);
+  var_name[name_len] = '\0';
+  memcpy(var_val, eq_ptr + 1, val_len + 1);
+
+  add_to_env(shell, var_name, var_val);
+
+  check_rehash(shell, var_name);
   return 0;
 }
 
@@ -761,5 +822,122 @@ int history_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     i++;
   }
 
+  return 0;
+}
+
+int exec_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+
+  char **argvv = &argv[1];
+  if (argv[1] == NULL)
+    return -1;
+
+  t_ht_node *bin_node = ht_find(&shell->bins, argv[1]);
+  char **env = flatten_env(&shell->env, &shell->arena);
+
+  if (bin_node) {
+    execve((char *)bin_node->value, argvv, env);
+  } else if (strchr(argv[1], '/')) {
+    execve(argv[1], argvv, env);
+  }
+
+  _exit(127);
+}
+
+static char *append_script_line(char *old_buf, const char *new_line,
+                                t_arena *a) {
+  size_t old_len = old_buf ? strlen(old_buf) : 0;
+  size_t new_len = strlen(new_line);
+
+  char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len);
+
+  memcpy(new_buf + old_len, new_line, new_len + 1);
+  return new_buf;
+}
+int source_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (argv[1] == NULL) {
+    fprintf(stderr, "msh: source: filename argument required\n");
+    return -1;
+  }
+
+  FILE *script = fopen(argv[1], "r");
+  if (!script) {
+    perror("msh: source");
+    return -1;
+  }
+
+  char *line = NULL;
+  size_t cap = 0;
+  char *total_buf = NULL;
+
+  t_region *p_mark;
+  size_t off_mark;
+
+  while (getline(&line, &cap, script) != -1) {
+    char *p = line;
+    while (*p && isspace((unsigned char)*p))
+      p++;
+    if (*p == '#' || *p == '\0')
+      continue;
+    arena_get_mark(&shell->arena, &p_mark, &off_mark);
+
+    total_buf = append_script_line(total_buf, line, &shell->arena);
+    if (parse_and_execute(&total_buf, shell, &shell->token_stream, true) == 0) {
+      total_buf = NULL;
+      arena_rollback(&shell->arena, p_mark, off_mark);
+    }
+  }
+
+  if (total_buf != NULL) {
+    fprintf(stderr, "msh: source: unexpected EOF\n");
+  }
+
+  free(line);
+  fclose(script);
+  return 0;
+}
+
+int pwd_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+
+  const char *r = getenv_local_ref(&shell->env, "PWD");
+  if (r) {
+    printf("%s\n", r);
+    return 0;
+  }
+
+  char p[PATH_MAX];
+  if (getcwd(p, PATH_MAX) == NULL) {
+    perror("msh: pwd");
+    return -1;
+  }
+  printf("%s\n", p);
+
+  return 0;
+}
+
+int read_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (argv[1] == NULL) {
+    fprintf(stderr, "msh: read: missing variable name\n");
+    return -1;
+  }
+
+  char *input_line = NULL;
+  size_t len = 0;
+  if (getline(&input_line, &len, stdin) == -1) {
+    free(input_line);
+    return -1;
+  }
+
+  size_t n = strlen(input_line);
+  if (n > 0 && input_line[n - 1] == '\n') {
+    input_line[n - 1] = '\0';
+  }
+
+  if (add_to_env(shell, argv[1], input_line) == -1) {
+    fprintf(stderr, "msh: read: failed to set variable %s\n", argv[1]);
+    free(input_line);
+    return -1;
+  }
+
+  free(input_line);
   return 0;
 }

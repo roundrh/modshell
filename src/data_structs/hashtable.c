@@ -29,12 +29,16 @@ t_ht_node *ht_find(t_hashtable *ht, const char *key) {
   return NULL;
 }
 
-t_ht_node *ht_insert(t_hashtable *ht, const char *key, void *value) {
+t_ht_node *ht_insert(t_hashtable *ht, const char *key, void *value,
+                     t_ht_free_fn freefn) {
   unsigned idx = ht_hash(key);
   t_ht_node *n = ht_find(ht, key);
 
-  if (n) {
+  if (n && freefn) {
+    freefn(n->value);
     n->value = value;
+    return n;
+  } else if (n) {
     return n;
   }
 

@@ -9,6 +9,8 @@
  * Module cleans up shell struct.
  */
 
+void free_bin(void *value);
+
 /**
  * @def cleanup_shell(t_shell* shell)
  * @param shell pointer shell struct

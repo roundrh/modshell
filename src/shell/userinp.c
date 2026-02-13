@@ -137,8 +137,11 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
                 t_dllnode **suggestion) {
   if (suggestion) {
     *suggestion = search_history(shell, cmd, cmd_len, cmd_idx, *suggestion);
+    if (*suggestion) {
+      size_t slen = strlen((*suggestion)->strbg);
+      clr_sgst(cmd_len, cmd_idx, slen);
+    }
   }
-
   int rows, cols;
   get_term_size(&rows, &cols);
 
@@ -154,12 +157,6 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
 
   tty_write(STDOUT_FILENO, shell->prompt);
   tty_write(STDOUT_FILENO, cmd);
-
-  if (suggestion && *suggestion) {
-    size_t slen = strlen((*suggestion)->strbg);
-    clr_sgst(cmd_len, cmd_idx, slen);
-    rndr_sgst(cmd_len, cmd_idx, *suggestion);
-  }
 
   size_t total_len = shell->prompt_len + cmd_len;
   size_t target_pos = shell->prompt_len + cmd_idx;
@@ -182,6 +179,10 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
 
   last_rows_drawn = target_row;
   fflush(stdout);
+
+  if (suggestion && *suggestion) {
+    rndr_sgst(cmd_len, cmd_idx, *suggestion);
+  }
 }
 
 /**
@@ -228,8 +229,8 @@ static int force_realloc_buf(char **buf, size_t *buf_cap, size_t *new_buf_cap) {
  *
  * @param shell pointer to shell struct
  *
- * Switches VMIN to 0 and VTIME to 1 to allow for 3 byte sequence to arrive for
- * arrow key parsing.
+ * Switches VMIN to 0 and VTIME to 1 to allow for 3 byte sequence to arrive
+ * for arrow key parsing.
  *
  * @note function used to read arrow key input.
  */

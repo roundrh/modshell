@@ -37,7 +37,6 @@ typedef struct s_builtin {
 void free_builtin(void *value);
 void free_env_entry(void *value);
 
-int help_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int cd_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int jobs_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int fg_builtin(t_ast_n *node, t_shell *shell, char **argv);
@@ -54,8 +53,13 @@ int stty_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int kill_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int v_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int test_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int true_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int false_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int echo_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int exec_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int source_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int pwd_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int read_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H

@@ -1,268 +1,273 @@
-#include"job_handler.h"
+#include "job_handler.h"
 
-static int resize_job_table(t_job*** job_table, size_t *job_table_cap){
+static int resize_job_table(t_job ***job_table, size_t *job_table_cap) {
 
-    size_t old_cap = *job_table_cap;
-    size_t new_cap = old_cap * BUF_GROWTH_FACTOR;
-    if(new_cap > MAX_JOBS){
-        return -1;
-    }
+  size_t old_cap = *job_table_cap;
+  size_t new_cap = old_cap * BUF_GROWTH_FACTOR;
+  if (new_cap > MAX_JOBS) {
+    return -1;
+  }
 
-    t_job** new_job_table = realloc(*job_table, sizeof(t_job*) * new_cap);
-    if(!new_job_table){
-        perror("realloc job table");
-        return -1;
-    }
+  t_job **new_job_table = realloc(*job_table, sizeof(t_job *) * new_cap);
+  if (!new_job_table) {
+    perror("realloc job table");
+    return -1;
+  }
 
-    *job_table = new_job_table;
-    
-    for (size_t i = old_cap; i < new_cap; i++) {
-        (*job_table)[i] = NULL;
-    }
-    
-    *job_table_cap = new_cap;
-    return 0;
+  *job_table = new_job_table;
+
+  for (size_t i = old_cap; i < new_cap; i++) {
+    (*job_table)[i] = NULL;
+  }
+
+  *job_table_cap = new_cap;
+  return 0;
 }
 
-int add_job(t_shell* shell, t_job* job){
-    if (!shell || !job) return -1;
+int add_job(t_shell *shell, t_job *job) {
+  if (!shell || !job)
+    return -1;
 
-    size_t i;
-    for(i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] == NULL)
-            break;
+  size_t i;
+  for (i = 0; i < shell->job_table_cap; i++) {
+    if (shell->job_table[i] == NULL)
+      break;
+  }
+
+  if (i == shell->job_table_cap) {
+    if (resize_job_table(&(shell->job_table), &shell->job_table_cap) == -1) {
+      fprintf(stderr, "\nmsh: job table full");
+      return -1;
     }
+    i = shell->job_table_cap / BUF_GROWTH_FACTOR;
+  }
 
-    if(i == shell->job_table_cap){
-        if(resize_job_table(&(shell->job_table), &shell->job_table_cap) == -1){
-            fprintf(stderr, "\nmsh: job table full");
-            return -1;
-        }
-        i = shell->job_table_cap / BUF_GROWTH_FACTOR;
-    }
+  shell->job_table[i] = job;
+  shell->job_count++;
+  job->job_id = shell->next_job_id++;
 
-    shell->job_table[i] = job;
-    shell->job_count++;
-    job->job_id = shell->next_job_id++;
-
-    return 0;
+  return 0;
 }
 
-int del_job(t_shell* shell, int job_id, bool flow){
+int del_job(t_shell *shell, int job_id, bool flow) {
 
-    if (!shell || job_id <= 0) 
-        return -1;
+  if (!shell || job_id <= 0)
+    return -1;
 
-    size_t i;
-    int found = 0;
-    
-    for (i = 0; i < shell->job_table_cap; i++){
+  size_t i;
+  int found = 0;
 
-        if(shell->job_table[i] == NULL)
-            continue;
+  for (i = 0; i < shell->job_table_cap; i++) {
 
-        if(shell->job_table[i]->job_id == job_id) {
-            found = 1;
-            break;
-        }
+    if (shell->job_table[i] == NULL)
+      continue;
+
+    if (shell->job_table[i]->job_id == job_id) {
+      found = 1;
+      break;
     }
+  }
 
-    if (found == 0) {
-        return -1;
-    }
+  if (found == 0) {
+    return -1;
+  }
 
-    cleanup_job_struct(shell->job_table[i]);
-    free(shell->job_table[i]);
+  cleanup_job_struct(shell->job_table[i]);
+  free(shell->job_table[i]);
+  shell->job_table[i] = NULL;
+
+  shell->job_count--;
+  if (is_job_table_empty(shell))
+    shell->next_job_id = 1;
+
+  return 0;
+}
+
+int reset_job_table_cap(t_shell *shell) {
+
+  if (!is_job_table_empty(shell)) {
+    return -1;
+  }
+
+  size_t ogl_cap = INITIAL_JOB_TABLE_LENGTH;
+  if (shell->job_table_cap <= ogl_cap) {
+    return 0;
+  }
+
+  free(shell->job_table);
+  shell->job_table =
+      (t_job **)malloc(sizeof(t_job *) * INITIAL_JOB_TABLE_LENGTH);
+  if (shell->job_table == NULL) {
+    perror("fatal job table alloc err");
+    return -1;
+  }
+  for (size_t i = 0; i < INITIAL_JOB_TABLE_LENGTH; i++)
     shell->job_table[i] = NULL;
 
-    shell->job_count--;
-    if (is_job_table_empty(shell))
-        shell->next_job_id = 1;
+  shell->job_table_cap = INITIAL_JOB_TABLE_LENGTH;
 
-    return 0;
-}
-
-int reset_job_table_cap(t_shell* shell){
-
-    if(!is_job_table_empty(shell)){
-        return -1;
-    }
-
-    size_t ogl_cap = INITIAL_JOB_TABLE_LENGTH;
-    if(shell->job_table_cap <= ogl_cap){
-        return 0;
-    }
-
-    free(shell->job_table);
-    shell->job_table = (t_job**)malloc(sizeof(t_job*) * INITIAL_JOB_TABLE_LENGTH);
-    if(shell->job_table == NULL){
-        perror("fatal job table alloc err");
-        return -1;
-    }
-    for(size_t i = 0; i < INITIAL_JOB_TABLE_LENGTH; i++)
-        shell->job_table[i] = NULL;
-
-    shell->job_table_cap = INITIAL_JOB_TABLE_LENGTH;
-
-    return 0;
+  return 0;
 }
 
 int is_job_completed(t_job *job) {
 
-    if (!job) 
-        return -1;
+  if (!job)
+    return -1;
 
-    t_process *p = job->processes;
-    while (p) {
-        if (p->completed == 0) return 0;
-        p = p->next;
-    }
+  t_process *p = job->processes;
+  while (p) {
+    if (p->completed == 0)
+      return 0;
+    p = p->next;
+  }
 
-    return 1;
+  return 1;
 }
 
-int is_job_stopped(t_job* job){
+int is_job_stopped(t_job *job) {
 
-    if (!job) return -1;
+  if (!job)
+    return -1;
 
-    t_process *p = job->processes;
-    while (p) {
-        if (p->stopped == 1) return 1;
-        p = p->next;
-    }
+  t_process *p = job->processes;
+  while (p) {
+    if (p->stopped == 1)
+      return 1;
+    p = p->next;
+  }
+  return 0;
+}
+
+int add_process_to_job(t_job *job, t_process *process) {
+
+  if (!job)
+    return -1;
+
+  t_process *head = job->processes;
+  if (head == NULL) {
+
+    job->processes = process;
+    job->process_count++;
+
     return 0;
-}
-
-int add_process_to_job(t_job *job, t_process* process){
-
-    if (!job) return -1;
-
-    t_process* head = job->processes;
-    if(head == NULL){
-        
-        job->processes = process;
-        job->process_count++;
-
-        return 0;
-    } else{
-        while(head->next != NULL){
-            head = head->next;
-        }
-        head->next = process;
-
-        job->process_count++;
-
-        return 0;
+  } else {
+    while (head->next != NULL) {
+      head = head->next;
     }
-    return -1;
+    head->next = process;
+
+    job->process_count++;
+
+    return 0;
+  }
+  return -1;
 }
 
-int mark_job_state(t_shell* shell, int job_id, t_state state){
+int mark_job_state(t_shell *shell, int job_id, t_state state) {
 
-    for (size_t i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] == NULL)
-            continue;
-        
-        if(shell->job_table[i]->job_id == job_id){
-            shell->job_table[i]->state = state;
-            return 0;
-        }
+  for (size_t i = 0; i < shell->job_table_cap; i++) {
+    if (shell->job_table[i] == NULL)
+      continue;
+
+    if (shell->job_table[i]->job_id == job_id) {
+      shell->job_table[i]->state = state;
+      return 0;
     }
+  }
 
-    return -1;
+  return -1;
 }
 
-int move_job_position(t_shell* shell, int job_id, t_position pos){
+int move_job_position(t_shell *shell, int job_id, t_position pos) {
 
-    for (size_t i = 0; i < shell->job_table_cap; i++){
-        
-        if(shell->job_table[i] == NULL)
-            continue;
+  for (size_t i = 0; i < shell->job_table_cap; i++) {
 
-        if(shell->job_table[i]->job_id == job_id){
-            shell->job_table[i]->position = pos;
-            return 0;
-        }
+    if (shell->job_table[i] == NULL)
+      continue;
+
+    if (shell->job_table[i]->job_id == job_id) {
+      shell->job_table[i]->position = pos;
+      return 0;
     }
+  }
 
-    return -1;
+  return -1;
 }
 
-int is_job_table_empty(t_shell* shell){
-    return shell->job_count == 0;
-}
+int is_job_table_empty(t_shell *shell) { return shell->job_count == 0; }
 
-int is_job_table_full(t_shell* shell){
-    return shell->job_count == MAX_JOBS;
-}
+int is_job_table_full(t_shell *shell) { return shell->job_count == MAX_JOBS; }
 
-t_job* get_foreground_job(t_shell* shell){
+t_job *get_foreground_job(t_shell *shell) {
 
-    for (size_t i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] == NULL) 
-            continue;
+  for (size_t i = 0; i < shell->job_table_cap; i++) {
+    if (shell->job_table[i] == NULL)
+      continue;
 
-        if(shell->job_table[i]->position == P_FOREGROUND){
-            return shell->job_table[i];
-        }
+    if (shell->job_table[i]->position == P_FOREGROUND) {
+      return shell->job_table[i];
     }
+  }
 
-    return NULL;
+  return NULL;
 }
-t_job* find_job(t_shell* shell, int job_id){
+t_job *find_job(t_shell *shell, int job_id) {
 
-    for (size_t i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] == NULL) 
-            continue;
+  for (size_t i = 0; i < shell->job_table_cap; i++) {
+    if (shell->job_table[i] == NULL)
+      continue;
 
-        if(shell->job_table[i]->job_id == job_id){
-            return shell->job_table[i];
-        }
+    if (shell->job_table[i]->job_id == job_id) {
+      return shell->job_table[i];
     }
-    return NULL;
+  }
+  return NULL;
 }
 
-t_job* find_job_by_pid(t_shell* shell, pid_t pid){
+t_job *find_job_by_pid(t_shell *shell, pid_t pid) {
 
-    for(size_t i = 0; i < shell->job_table_cap; i++){
-        if(shell->job_table[i] == NULL)
-            continue;
+  for (size_t i = 0; i < shell->job_table_cap; i++) {
+    if (shell->job_table[i] == NULL)
+      continue;
 
-        t_job* in_job = shell->job_table[i];
-        t_process* process = in_job->processes;
-        while(process){
-            if(process->pid == pid){
-                return in_job;
-            }
-            process = process->next;
-        }
-    }    
-
-    return NULL;
-}
-
-t_process* find_process_in_job(t_job* job, pid_t pid){
-    t_process* process = job->processes;
-    while(process){
-
-        if(process->pid == pid){
-            return process;
-        }
-        process = process->next;
+    t_job *in_job = shell->job_table[i];
+    t_process *process = in_job->processes;
+    while (process) {
+      if (process->pid == pid) {
+        return in_job;
+      }
+      process = process->next;
     }
+  }
 
-    return NULL;
+  return NULL;
 }
 
-void print_job_info(t_job* job){
+t_process *find_process_in_job(t_job *job, pid_t pid) {
+  t_process *process = job->processes;
+  while (process) {
 
-    if(!job) 
-        return;
+    if (process->pid == pid) {
+      return process;
+    }
+    process = process->next;
+  }
 
-    if(job->state == S_RUNNING)
-        printf("[%d] %d - running       %s\n", job->job_id, job->pgid, job->command);
-    if(job->state == S_STOPPED)
-        printf("[%d] %d - stopped       %s\n", job->job_id, job->pgid, job->command);
-    if(job->state == S_COMPLETED)
-        printf("[%d] %d - done          %s\n", job->job_id, job->pgid, job->command);
+  return NULL;
+}
+
+void print_job_info(t_job *job) {
+
+  if (!job)
+    return;
+
+  if (job->state == S_RUNNING)
+    printf("[%d] %d - running       %s\n", job->job_id, job->pgid,
+           job->command);
+  if (job->state == S_STOPPED)
+    printf("[%d] %d - stopped       %s\n", job->job_id, job->pgid,
+           job->command);
+  if (job->state == S_COMPLETED)
+    printf("[%d] %d - done          %s\n", job->job_id, job->pgid,
+           job->command);
 }

@@ -1,5 +1,8 @@
 #include "shell_init.h"
+#include "shell.h"
 #include <sys/sysmacros.h>
+
+extern char **environ;
 
 /**
  * @file shell_init.c
@@ -17,7 +20,7 @@ t_ht_node *insert_builtin(t_hashtable *ht, const char *name,
   }
 
   b->fn = fn;
-  return ht_insert(ht, name, b);
+  return ht_insert(ht, name, b, NULL);
 }
 
 /**
@@ -85,6 +88,20 @@ static int push_built_ins(t_shell *shell) {
     return -1;
 
   if (!insert_builtin(&shell->builtins, "echo", echo_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "exec", exec_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "source", source_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, ".", source_builtin))
+    return -1;
+
+  if (!insert_builtin(&shell->builtins, "read", read_builtin))
+    return -1;
+
+  if (!insert_builtin(&shell->builtins, "pwd", pwd_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "builtin", builtin_builtin))
     return -1;
 
   return 0;
@@ -202,7 +219,7 @@ static void hash_directory(t_hashtable *bins, char *dir_path) {
       continue;
     snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
     if (access(full_path, X_OK) == 0) {
-      ht_insert(bins, entry->d_name, strdup(full_path));
+      ht_insert(bins, entry->d_name, strdup(full_path), free);
     }
   }
   closedir(dir);
@@ -231,7 +248,6 @@ void init_bins(t_shell *shell) {
 }
 
 void init_env(t_shell *shell) {
-  extern char **environ;
 
   ht_init(&shell->env);
 
@@ -241,6 +257,9 @@ void init_env(t_shell *shell) {
     if (eq) {
       *eq = '\0';
       add_to_env(shell, entry, eq + 1);
+      t_ht_node *hh = ht_find(&shell->env, entry);
+      t_env_entry *a = (t_env_entry *)hh->value;
+      a->flags |= ENV_EXPORTED;
     }
     free(entry);
   }
@@ -350,14 +369,13 @@ int init_shell_state(t_shell *shell) {
   }
 
   init_env(shell);
-  init_bins(shell);
-
   shell->path = getenv_local_ref(&shell->env, "PATH");
   if (shell->path) {
     shell->path_len = strlen(shell->path);
   } else {
     shell->path_len = 0;
   }
+  init_bins(shell);
 
   return 0;
 }

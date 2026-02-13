@@ -35,50 +35,43 @@ typedef struct s_env_entry {
  */
 typedef struct shell_s {
 
-  t_arena arena;
-
-  char **argv;
-  int argc;
-
-  const char *path;
-  size_t path_len;
-
-  int is_interactive;
-  int job_control_flag;
-
   t_hashtable bins;
   t_hashtable env;
+  t_hashtable builtins;
+  t_hashtable aliases;
 
-  t_token_stream token_stream;
-
+  t_job **job_table;
   t_job *fg_job;
 
-  int tty_fd;
-  pid_t pgid;
-
-  char *prompt;
-  size_t prompt_len;
-
-  t_job **job_table;    //
-  size_t job_table_cap; //
-  size_t job_count;
-
-  t_shell_sigtable shell_sigtable; //
-
-  t_term_ctrl term_ctrl; //
-
-  t_ast ast; //
+  t_token_stream token_stream;
+  t_ast ast;
 
   t_dll history;
-  t_hashtable builtins; //
-  t_hashtable aliases;  //
 
-  int last_exit_status; //
-  char *sh_name;        //
+  char **argv;
+  const char *path;
+  char *prompt;
+  char *sh_name;
 
+  t_arena arena;
+  t_shell_sigtable shell_sigtable;
+  t_term_ctrl term_ctrl;
+
+  size_t path_len;
+  size_t prompt_len;
+  size_t job_table_cap;
+  size_t job_count;
+
+  pid_t pgid;
+  int argc;
+  int last_exit_status;
   int next_job_id;
 
-  int std_fd_backup[2]; //
+  int tty_fd;
+  int std_fd_backup[2];
+
+  unsigned int is_interactive : 1;
+  unsigned int job_control_flag : 1;
 
   int rows;
   int cols;

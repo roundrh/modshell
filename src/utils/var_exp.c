@@ -1,4 +1,5 @@
 #include "var_exp.h"
+#include "builtins.h"
 #include "hashtable.h"
 #include <stdlib.h>
 
@@ -69,7 +70,7 @@ char **flatten_env(t_hashtable *env, t_arena *a) {
     while (node) {
       t_env_entry *entry = (t_env_entry *)node->value;
 
-      if (entry && entry->val) {
+      if (entry && entry->val && (entry->flags & ENV_EXPORTED)) {
         size_t k_len = strlen(node->key);
         size_t v_len = strlen(entry->val);
         size_t total_len = k_len + v_len + 2;
@@ -87,8 +88,8 @@ char **flatten_env(t_hashtable *env, t_arena *a) {
       node = node->next;
     }
   }
-
   envp[env_idx] = NULL;
+
   return envp;
 }
 
@@ -132,7 +133,7 @@ int add_to_env(t_shell *shell, const char *var, const char *val) {
       return -1;
     entry->name = strdup(var);
     entry->flags = 0;
-    ht_insert(&shell->env, var, entry);
+    ht_insert(&shell->env, var, entry, free_env_entry);
   }
 
   entry->val = strdup(val);
@@ -153,7 +154,7 @@ int add_to_env(t_shell *shell, const char *var, const char *val) {
 static char *get_ifs(t_shell *shell, t_arena *a) {
 
   char *ifs = getenv_local(&shell->env, "IFS", a);
-  if (!ifs && (ifs = getenv("IFS")) == NULL) {
+  if (!ifs) {
     char ifs_def[] = {' ', '\t', '\n', '\0'};
     ifs = (char *)arena_alloc(a, sizeof(ifs_def));
     memcpy(ifs, ifs_def, sizeof(ifs_def));
@@ -914,19 +915,47 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
 
 t_err_type expand_tilde(t_shell *shell, char **buf, size_t *buf_cap,
                         const char **p, size_t *k, t_arena *a) {
-  char *home = getenv_local(&shell->env, "HOME", a);
-  if (!home)
-    home = getenv("HOME");
+  const char *intp = *p + 1;
 
-  if (home) {
-    append_to_buf(buf, buf_cap, k, home, a);
-  } else {
-    append_to_buf(buf, buf_cap, k, "~", a);
+  if (*intp == '\0' || *intp == '/' || isspace(*intp)) {
+    const char *home = getenv_local_ref(&shell->env, "HOME");
+    if (!home)
+      home = getenv("HOME");
+    if (home) {
+      append_to_buf(buf, buf_cap, k, home, a);
+      *p = intp;
+    } else {
+      append_to_buf(buf, buf_cap, k, "~", a);
+      (*p)++;
+    }
+    return err_none;
   }
-  (*p)++;
 
+  const char *user_start = intp;
+  size_t u_len = 0;
+  while (user_start[u_len] && user_start[u_len] != '/' &&
+         !isspace(user_start[u_len])) {
+    u_len++;
+  }
+
+  char uname[256];
+  if (u_len < sizeof(uname)) {
+    memcpy(uname, user_start, u_len);
+    uname[u_len] = '\0';
+
+    struct passwd *pw = getpwnam(uname);
+    if (pw && pw->pw_dir) {
+      append_to_buf(buf, buf_cap, k, pw->pw_dir, a);
+      *p = user_start + u_len;
+      return err_none;
+    }
+  }
+
+  append_to_buf(buf, buf_cap, k, "~", a);
+  (*p)++;
   return err_none;
 }
+
 static t_token *mov_tok(t_token *t, const char *p, const size_t segment_len) {
 
   size_t k = 0;
@@ -958,6 +987,13 @@ static t_err_type make_buf(t_shell *shell, t_token *start,
 
     if (p && *p == '~') {
       expand_tilde(shell, buf, buf_cap, &p, &k, a);
+      if (segment_len > 1) {
+        t = mov_tok(t, p, segment_len);
+        j = p - t->start;
+        i = (size_t)(t - start);
+      } else {
+        j = p - t->start;
+      }
     }
 
     while (j < t->len) {
@@ -983,6 +1019,9 @@ static t_err_type make_buf(t_shell *shell, t_token *start,
         } else {
           j += (p - old_p);
         }
+
+        append_to_buf(buf, buf_cap, &k, " ", a);
+
         continue;
       }
       char c[2] = {*p, '\0'};

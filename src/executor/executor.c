@@ -266,20 +266,16 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     init_ch_sigtable(&(shell->shell_sigtable));
     set_global_shell_ptr_chld(shell);
 
-    t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
-    if (!bin_node) {
-      refresh_path_bins(shell);
-    }
-
     char **env = flatten_env(&shell->env, &shell->arena);
-
-    if (bin_node) {
-      execve((char *)bin_node->value, argv, env);
-    } else if (strchr(argv[0], '/')) {
+    if (strchr(argv[0], '/')) {
       execve(argv[0], argv, env);
+    } else {
+      t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
+      if (bin_node) {
+        execve(bin_node->value, argv, env);
+      }
     }
 
-    execvp(argv[0], argv);
     fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
     _exit(127);
   } else if (shell->job_control_flag) {
@@ -391,25 +387,6 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
   t_region *p;
   size_t off;
   arena_get_mark(&shell->arena, &p, &off);
-
-  const char *cur_path = getenv_local_ref(&shell->env, "PATH");
-  size_t plen = 0;
-  if (!cur_path && shell->path) {
-    shell->path = NULL;
-    refresh_path_bins(shell);
-  } else if (cur_path) {
-    plen = strlen(cur_path);
-  }
-  if (cur_path && shell->path) {
-    if (plen != shell->path_len) {
-      shell->path = cur_path;
-      shell->path_len = plen;
-      refresh_path_bins(shell);
-    } else if (strcmp(shell->path, cur_path) != 0) {
-      shell->path = cur_path;
-      refresh_path_bins(shell);
-    }
-  }
 
   char **argv = NULL;
   t_err_type err_ret = expand_make_argv(shell, &argv, node->tok_start,
@@ -835,17 +812,17 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       print_job_info(job);
     return WAIT_FINISHED;
   } else if (!shell->job_control_flag) {
-    int status = 0;
-
     /* builtins set shell exit status - return pid 0 */
     if (lpid > 0) {
-      waitpid(lpid, &status, WUNTRACED);
-      shell->last_exit_status = WEXITSTATUS(status);
-      if (WIFSIGNALED(status))
-        shell->last_exit_status = WTERMSIG(status) + 128;
-
-      while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
+      int status;
+      pid_t p;
+      while ((p = waitpid(-1, &status, WUNTRACED)) > 0) {
+        if (p == lpid) {
+          shell->last_exit_status = WEXITSTATUS(status);
+          if (WIFSIGNALED(status))
+            shell->last_exit_status = WTERMSIG(status) + 128;
+        }
+      }
     }
 
     if (!subshell) {

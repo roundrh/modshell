@@ -17,7 +17,7 @@ t_ht_node *insert_alias(t_hashtable *ht, const char *alias, const char *cmd) {
 
   t_alias *a = malloc(sizeof(*a));
   a->cmd = strdup(cmd);
-  return ht_insert(ht, alias, a);
+  return ht_insert(ht, alias, a, free_alias);
 }
 
 static void print_alias(const char *key, void *value) {
