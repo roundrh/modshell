@@ -26,9 +26,9 @@ Run the shell
 ```
 
 The 3 builds are: all, dev, prod.
-- **all**: Default when running make, contains ASan flags to detect memory leaks, invalid reads, etc.
-- **dev**: Contains no extra flags, mainly used for valgrind and debugging in gdb.
-- **prod**: -O3 optimized build, this is the build for real usage, or to run scripts.
+- **all**: Default when running make, contains ASan flags to detect memory leaks, invalid reads, etc. `./msh`
+- **dev**: Contains no extra flags, mainly used for valgrind and debugging in gdb. `./msh_dev`
+- **prod**: -O3 optimized build, this is the build for real usage, or to run scripts. `./msh_prod`
 
 ## Requirements 
 - GCC
@@ -48,19 +48,19 @@ The 3 builds are: all, dev, prod.
   - for
   - while
 - POSIX Parameter Expansion:
-  - Braces: ${#VAR}, ${VAR#, ##, %, %%}, ${VAR:-, :+, :=, :, ${VAR}
-  - Variable: $VAR
-  - Subshell: $(command)
-  - Arithmetic: $((...))
-  - Positional Parameters ($#, $*, $@, $n)
-  -  Basic Expansions: $$, $?
+  - Braces: `${#VAR}`, `${VAR#, ##, %, %%}`, `${VAR:-, :+, :=, :?`, `${VAR}`
+  - Variable: `$VAR`
+  - Subshell: `$(command)`
+  - Arithmetic: `$((...))`
+  - Positional Parameters `$#`, `$*`, `$@`, `$n`
+  -  Basic Expansions: `$$`, `$?`
 - Bash brace ranges and options expansions:
-  - {a..z}, {1..n}, prefix{a,{b,c}}suffix
+  - `{a..z}`, `{1..n}`, `prefix{a,{b,c}}suffix`
 - IFS Splitting, with variable IFS options
-- Full Job Control: fg, bg, jobs
+- Full Job Control: `fg`, `bg`, `jobs`
 - AST Parser to allow for complex commands
 - Hashtables for aliases, builtins, environment entries, and PATH caching
 - Heredoc (Doesnt expand yet)
-- Basic redirections (<, >, >>)
+- Basic redirections `<`, `>`, `>>`
 ## License
 MIT
