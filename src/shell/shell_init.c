@@ -1,6 +1,8 @@
 #include "shell_init.h"
+#include "executor.h"
 #include "shell.h"
 #include <sys/sysmacros.h>
+#include <unistd.h>
 
 extern char **environ;
 
@@ -23,6 +25,83 @@ t_ht_node *insert_builtin(t_hashtable *ht, const char *name,
   return ht_insert(ht, name, b, NULL);
 }
 
+static void load_rc(t_shell *shell) {
+  const char *home = getenv_local_ref(&shell->env, "HOME");
+  if (!home)
+    return;
+
+  char rc_path[PATH_MAX];
+  snprintf(rc_path, sizeof(rc_path), "%s/.mshrc", home);
+
+  if (access(rc_path, F_OK) == 0) {
+    exec_script(shell, rc_path);
+  } else if (errno == ENOENT) {
+    char a;
+    fprintf(stderr, "\nmsh: no rc file found at ~/.mshrc:\n");
+    printf("y: Create default rc file\n");
+    printf(
+        "n: skip rc file creation (this will display next time msh is ran)\n");
+
+    while (1) {
+      printf("Enter (y/n): ");
+      fflush(stdout);
+      while (read(STDIN_FILENO, &a, 1) < 0) {
+        if (errno != EINTR)
+          exit(1);
+      }
+      if (a == 'y' || a == 'n')
+        break;
+    }
+
+    if (a == 'y') {
+      int fd = open(rc_path, O_CREAT | O_WRONLY | O_EXCL, 0644);
+      if (fd != -1) {
+        dprintf(fd, "# msh config file\n\n");
+        dprintf(fd, "# aliases\n");
+        dprintf(fd, "alias l='ls -lAh'\n");
+        dprintf(fd, "alias ls='ls --color=tty'\n");
+        dprintf(fd, "alias grep='grep --color=auto'\n");
+        dprintf(fd, "alias vim='nvim'\n");
+        dprintf(fd, "alias ll='ls -lh'\n");
+        dprintf(fd, "alias nf='neofetch'\n");
+        dprintf(fd, "alias fetch='neofetch'\n");
+        dprintf(fd, "alias ..='cd ..'\n");
+        dprintf(fd, "alias _='sudo'\n");
+
+        close(fd);
+        printf("msh: default .mshrc created at %s\n", rc_path);
+        exec_script(shell, rc_path);
+      } else {
+        perror("\nmsh: failed to create rc file");
+      }
+    } else {
+      printf("msh: skipping rc creation.\n");
+    }
+  }
+
+  printf("\033[J");
+}
+
+static void load_history(t_shell *shell) {
+  const char *home = getenv_local_ref(&shell->env, "HOME");
+  if (!home)
+    return;
+
+  char path[PATH_MAX];
+  snprintf(path, PATH_MAX, "%s/.msh_history", home);
+  FILE *fp = fopen(path, "r");
+  if (!fp)
+    return;
+
+  char *line = NULL;
+  size_t len = 0;
+  while (getline(&line, &len, fp) != -1) {
+    line[strcspn(line, "\n")] = 0;
+    push_back_dll(line, &shell->history);
+  }
+  free(line);
+  fclose(fp);
+}
 /**
  * @brief populate built ins hashtable with functions
  * @param shell pointer to shell struct
@@ -104,18 +183,6 @@ static int push_built_ins(t_shell *shell) {
   if (!insert_builtin(&shell->builtins, "builtin", builtin_builtin))
     return -1;
 
-  return 0;
-}
-
-static int push_def_aliases(t_hashtable *ht) {
-  insert_alias(ht, "l", "ls -lAh");
-  insert_alias(ht, "ls", "ls --color=tty");
-  insert_alias(ht, "fetch", "neofetch");
-  insert_alias(ht, "grep", "grep --color=auto");
-  insert_alias(ht, "ll", "ls -lh");
-  insert_alias(ht, "vim", "nvim");
-  insert_alias(ht, "ff", "fastfetch");
-  insert_alias(ht, "nf", "neofetch");
   return 0;
 }
 
@@ -349,7 +416,6 @@ int init_shell_state(t_shell *shell) {
 
   ht_init(&(shell->builtins));
   ht_init(&(shell->aliases));
-  push_def_aliases(&(shell->aliases));
 
   init_dll(&(shell->history));
 
@@ -376,6 +442,9 @@ int init_shell_state(t_shell *shell) {
     shell->path_len = 0;
   }
   init_bins(shell);
+
+  load_rc(shell);
+  load_history(shell);
 
   return 0;
 }

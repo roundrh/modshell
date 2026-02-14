@@ -1,5 +1,4 @@
 #include "executor.h"
-#include "lexer.h"
 #include "shell.h"
 #include "shell_cleanup.h"
 #include "shell_init.h"
@@ -10,10 +9,8 @@
 #include <unistd.h>
 
 static t_shell *g_shell_ptr = NULL;
-static char *g_cmd_buf_ptr = NULL;
 
 void set_global_shell_ptr(t_shell *ptr) { g_shell_ptr = ptr; }
-void set_global_cmd_buf_ptr(char *ptr) { g_cmd_buf_ptr = ptr; }
 
 void cleanup_global_shell_ptr(void) {
   if (g_shell_ptr != NULL) {
@@ -22,16 +19,29 @@ void cleanup_global_shell_ptr(void) {
   }
 }
 
-static char *append_script_line(char *old_buf, const char *new_line,
-                                t_arena *a) {
+static int add_hist_entry(t_shell *shell, const char *line) {
+  t_dll *hist = &shell->history;
+  if (!push_front_dll(line, hist)) {
+    perror("push_front_dll");
+    return -1;
+  }
 
-  size_t old_len = old_buf ? strlen(old_buf) : 0;
-  size_t new_len = strlen(new_line);
+  while (hist->size > HIST_MAX) {
+    t_dllnode *old = hist->tail;
+    if (!old)
+      break;
+    hist->tail = old->prev;
+    if (hist->tail)
+      hist->tail->next = NULL;
+    else
+      hist->head = NULL;
 
-  char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len);
+    free(old->strbg);
+    free(old);
+    hist->size--;
+  }
 
-  memcpy(new_buf + old_len, new_line, new_len + 1);
-  return new_buf;
+  return 0;
 }
 
 void make_argl(t_shell *shell, int argc, char **argv) {
@@ -62,7 +72,6 @@ int main(int argc, char **argv) {
   char *cmd_line_buf = NULL;
 
   set_global_shell_ptr(&shell_state);
-  set_global_cmd_buf_ptr(cmd_line_buf);
 
   atexit(cleanup_global_shell_ptr);
 
@@ -73,52 +82,12 @@ int main(int argc, char **argv) {
   make_argl(&shell_state, argc, argv);
 
   if (argc > 1) {
-
     /* treat signals as dfl */
     init_ch_sigtable(&shell_state.shell_sigtable);
-
     shell_state.job_control_flag = 0;
-
-    FILE *script = fopen(argv[1], "r");
-    if (!script) {
-      errno = EINVAL;
-      perror("msh: open");
-      exit(EXIT_FAILURE);
+    if (exec_script(&shell_state, argv[1]) == -1) {
+      exit(1);
     }
-
-    char *line = NULL;
-    size_t cap = 0;
-    char *total_buf = NULL;
-
-    if (getline(&line, &cap, script) != -1) {
-      if (strncmp(line, "#!", 2) != 0)
-        total_buf = append_script_line(total_buf, line, &shell_state.arena);
-    }
-
-    while (getline(&line, &cap, script) != -1) {
-      char *p = line;
-      while (*p && isspace((unsigned char)*p))
-        p++;
-
-      if (*p == '#' || *p == '\0')
-        continue;
-      total_buf = append_script_line(total_buf, line, &shell_state.arena);
-
-      if (parse_and_execute(&total_buf, &shell_state, &shell_state.token_stream,
-                            true) == 0) {
-        total_buf = NULL;
-        shell_state.last_exit_status = 0;
-        arena_reset(&shell_state.arena);
-      }
-    }
-
-    if (total_buf != NULL) {
-      fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
-      total_buf = NULL;
-    }
-
-    free(line);
-    fclose(script);
     exit(shell_state.last_exit_status);
   }
 
@@ -149,7 +118,6 @@ int main(int argc, char **argv) {
 
       rawify(&shell_state);
       cmd_line_buf = read_user_inp(&shell_state);
-      set_global_cmd_buf_ptr(cmd_line_buf);
       reset_terminal_mode(&shell_state);
     } else {
       size_t cap = 0;
@@ -158,7 +126,6 @@ int main(int argc, char **argv) {
         cleanup_shell(&shell_state, shell_state.last_exit_status);
         exit(shell_state.last_exit_status);
       }
-      set_global_cmd_buf_ptr(cmd_line_buf);
     }
 
     if (!cmd_line_buf || *cmd_line_buf == '\0' || *cmd_line_buf == '\n' ||
@@ -167,15 +134,14 @@ int main(int argc, char **argv) {
         HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
 
       reap_sigchld_jobs(&shell_state);
-      set_global_cmd_buf_ptr(NULL);
       continue;
     }
 
     cmd_line_buf[strcspn(cmd_line_buf, "\n")] = '\0';
     cmd_line_buf[strcspn(cmd_line_buf, "\r")] = '\0';
 
-    if (push_front_dll(cmd_line_buf, &(shell_state.history)) == NULL) {
-      perror("fatal fail pushfrontdll");
+    if (add_hist_entry(&shell_state, cmd_line_buf) == -1) {
+      perror("add_hist_entry");
       return -1;
     }
 
@@ -185,8 +151,6 @@ int main(int argc, char **argv) {
     parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream,
                       false);
     arena_reset(&shell_state.arena);
-
-    set_global_cmd_buf_ptr(NULL);
   }
 
   return 0;

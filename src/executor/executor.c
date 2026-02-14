@@ -17,6 +17,58 @@ typedef enum e_pgrp {
  * @brief implementation of functions used to execute AST.
  */
 
+static char *append_script_line(char *old_buf, const char *new_line,
+                                t_arena *a) {
+
+  size_t old_len = old_buf ? strlen(old_buf) : 0;
+  size_t new_len = strlen(new_line);
+
+  char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len);
+
+  memcpy(new_buf + old_len, new_line, new_len + 1);
+  return new_buf;
+}
+
+int exec_script(t_shell *shell, const char *path) {
+  FILE *script = fopen(path, "r");
+  if (!script) {
+    errno = EINVAL;
+    perror("msh: open");
+    return -1;
+  }
+
+  char *line = NULL;
+  size_t cap = 0;
+  char *total_buf = NULL;
+  if (getline(&line, &cap, script) != -1) {
+    if (strncmp(line, "#!", 2) != 0)
+      total_buf = append_script_line(total_buf, line, &shell->arena);
+  }
+  while (getline(&line, &cap, script) != -1) {
+    char *p = line;
+    while (*p && isspace((unsigned char)*p))
+      p++;
+
+    if (*p == '#' || *p == '\0')
+      continue;
+
+    total_buf = append_script_line(total_buf, line, &shell->arena);
+
+    if (parse_and_execute(&total_buf, shell, &shell->token_stream, true) == 0) {
+      total_buf = NULL;
+      shell->last_exit_status = 0;
+      arena_reset(&shell->arena);
+    }
+  }
+  if (total_buf != NULL) {
+    fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
+  }
+
+  free(line);
+  fclose(script);
+  return 0;
+}
+
 static void wait_for_job_slot(t_shell *shell) {
   sigset_t mask, oldmask, emptymask;
 
