@@ -62,5 +62,6 @@ The 3 builds are: all, dev, prod.
 - Hashtables for aliases, builtins, environment entries, and PATH caching
 - Heredoc (Doesnt expand yet)
 - Basic redirections `<`, `>`, `>>`
+- Aliases
 ## License
 MIT
