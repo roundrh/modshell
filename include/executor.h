@@ -5,12 +5,15 @@
 #include "handle_io_redir.h"
 #include "job_handler.h"
 #include "jobs_init.h"
+#include "lexer.h"
 #include "parser.h"
 #include "shell.h"
 #include "shell_cleanup.h"
+#include "shell_init.h"
 #include "sigtable_init.h"
 #include "userinp.h"
 #include "var_exp.h"
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,19 +22,20 @@
 /**
  * @file executor.h
  *
- * This module declares the functions called by the driver to parse and execute
- * accordingly.
+ * This module declares the functions called by the driver to parse and
+ * execute accordingly.
  */
 
 /**
- * @brief function parses cmd_buf to command then builds ast in shell struct and
- * sends to executor.
+ * @brief function parses cmd_buf to command then builds ast in shell struct
+ * and sends to executor.
  * @param cmd_buf pointer to the cmd line buffer
  * @param shell pointer to shell struct
  * @param command pointer to command struct
  *
  * Function parses and sets parse the command line into a command struct
- * then tokenize, build the AST in shell struct, and finally pass to executor.
+ * then tokenize, build the AST in shell struct, and finally pass to
+ * executor.
  *
  * @note called by driver.
  */

@@ -9,7 +9,7 @@ This project is still a work in progress.
 
 ## Build
 
-Clone into the repository
+Clone the repository
 ```
 git clone https://github.com/roundrh/modshell/
 cd modshell
@@ -35,7 +35,7 @@ The 3 builds are: all, dev, prod.
 - make
 
 ## Key Features (With Technical Details) 
-- Zero dependancy TUI, built with raw mode termios and ANSI escape codes
+- Zero dependency TUI, built with raw mode termios and ANSI escape codes
 - Autosuggestions:
   - Renders ghost text, right arrow to autocomplete suggestion
 - Interactive tab completion:

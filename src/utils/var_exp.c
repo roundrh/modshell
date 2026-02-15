@@ -956,83 +956,57 @@ t_err_type expand_tilde(t_shell *shell, char **buf, size_t *buf_cap,
   return err_none;
 }
 
-static t_token *mov_tok(t_token *t, const char *p, const size_t segment_len) {
-
-  size_t k = 0;
-  while (k + 1 < segment_len && (t + 1)->start <= p) {
-    t++;
-    k++;
-  }
-
-  return t;
+static bool word_boundary(char c) {
+  return isspace(c) || c == '(' || c == ')' || c == ';' || c == '|' ||
+         c == '&' || c == '=';
 }
 
 static t_err_type make_buf(t_shell *shell, t_token *start,
                            const size_t segment_len, t_arena *a, char **buf,
                            size_t *buf_cap) {
-  t_token *t = start;
-  size_t k = 0;
-  for (size_t i = 0; i < segment_len; ++i) {
+  const char *p = start->start;
+  const t_token *last = start + (segment_len - 1);
+  const char *end = last->start + last->len;
 
-    if (redir_tok_found(t)) {
-      i++;
-      t++;
+  size_t k = 0;
+
+  bool dq = false;
+  bool sq = false;
+  bool word_start = true;
+
+  while (p < end) {
+    if (*p == '\'' && !dq) {
+      sq = !sq;
+    } else if (*p == '"' && !sq) {
+      dq = !dq;
+    }
+    if (*p == '~' && !sq && !dq && word_start) {
+      expand_tilde(shell, buf, buf_cap, &p, &k, a);
+      word_start = false;
       continue;
     }
-
-    const char *p = t->start;
-    bool dq = false;
-    bool sq = false;
-    size_t j = 0;
-
-    if (p && *p == '~') {
-      const char *old_p = p;
-      expand_tilde(shell, buf, buf_cap, &p, &k, a);
-      j += (p - old_p);
-    }
-
-    while (j < t->len) {
-      if (*p == '\'' && !dq) {
-        sq = !sq;
-      } else if (*p == '"' && !sq) {
-        dq = !dq;
-      }
-
-      if (*p == '$' && !sq && j < t->len && !isspace(*(p + 1))) {
-        const char *old_p = p;
-        t_exp_handler h = find_handler(p + 1);
-        p++;
-        t_err_type err = h(shell, buf, buf_cap, &p, &k, a);
-        if (err != err_none)
-          return err;
-        if (segment_len > 1) {
-          t = mov_tok(t, p, segment_len);
-          j = p - t->start;
-          i = (size_t)(t - start);
-          if (i >= segment_len)
-            break;
-        } else {
-          j += (p - old_p);
-        }
-
-        append_to_buf(buf, buf_cap, &k, " ", a);
-
-        continue;
-      }
-      char c[2] = {*p, '\0'};
-      append_to_buf(buf, buf_cap, &k, c, a);
-
+    if (*p == '$' && !sq && p + 1 < end && !isspace(*(p + 1))) {
+      t_exp_handler h = find_handler(p + 1);
       p++;
-      j++;
-    }
 
-    if (t->type == TOKEN_SIMPLE && i + 1 < segment_len) {
-      append_to_buf(buf, buf_cap, &k, " ", a);
+      t_err_type err = h(shell, buf, buf_cap, &p, &k, a);
+      if (err != err_none)
+        return err;
+
+      word_start = false;
+      continue;
     }
-    t++;
+    char c[2] = {*p, '\0'};
+    append_to_buf(buf, buf_cap, &k, c, a);
+    if (!sq && !dq && word_boundary(*p)) {
+      word_start = true;
+    } else {
+      word_start = false;
+    }
+    p++;
   }
-  (*buf)[k] = '\0';
 
+  (*buf)[k] = '\0';
   return err_none;
 }
 

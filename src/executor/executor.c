@@ -1,9 +1,4 @@
 #include "executor.h"
-#include "builtins.h"
-#include "lexer.h"
-#include "shell_init.h"
-#include <signal.h>
-#include <stdlib.h>
 
 typedef enum e_pgrp {
 
