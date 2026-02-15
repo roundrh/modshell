@@ -375,6 +375,25 @@ static t_completions get_matches(char *cmd, size_t cmd_idx) {
 
     char *search_dir =
         slash ? strndup(path_part, (slash - path_part) + 1) : strdup(".");
+    if (search_dir[0] == '~') {
+      const char *home = getenv("HOME");
+      if (home) {
+        char *tmp = malloc(strlen(home) + strlen(search_dir));
+        if (!tmp) {
+          perror("malloc");
+          free(search_dir);
+          free(path_part);
+          freematches(res.matches);
+          res.matches = NULL;
+          res.count = 0;
+          return res;
+        }
+        strcpy(tmp, home);
+        strcat(tmp, search_dir + 1);
+        free(search_dir);
+        search_dir = tmp;
+      }
+    }
     char *search_prefix = slash ? slash + 1 : path_part;
     res.prefix_len = strlen(search_prefix);
     for (size_t i = 0; i <= res.prefix_len; i++) {
