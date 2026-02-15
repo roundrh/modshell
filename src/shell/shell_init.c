@@ -341,7 +341,7 @@ void init_env(t_shell *shell) {
  *
  * @note mallocd env freed in shell_cleanup.h, called atexit()
  */
-int init_shell_state(t_shell *shell) {
+int init_shell_state(t_shell *shell, int script) {
 
   arena_init(&shell->arena);
   get_term_size(&shell->rows, &shell->cols);
@@ -443,8 +443,10 @@ int init_shell_state(t_shell *shell) {
   }
   init_bins(shell);
 
-  load_rc(shell);
-  load_history(shell);
+  if (!script) {
+    load_rc(shell);
+    load_history(shell);
+  }
 
   return 0;
 }

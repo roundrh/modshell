@@ -80,6 +80,6 @@ void get_shell_prompt(t_shell *shell);
  *
  * @note Driver calls this function prior to main loop.
  */
-int init_shell_state(t_shell *shell);
+int init_shell_state(t_shell *shell, int script);
 
 #endif // ! SHELL_INIT_H

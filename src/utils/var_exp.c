@@ -956,54 +956,69 @@ t_err_type expand_tilde(t_shell *shell, char **buf, size_t *buf_cap,
   return err_none;
 }
 
-static bool word_boundary(char c) {
-  return isspace(c) || c == '(' || c == ')' || c == ';' || c == '|' ||
-         c == '&' || c == '=';
+static size_t mov_tok(t_token **t, const char *p, t_token *start,
+                      size_t segment_len) {
+  size_t moved = 0;
+  while ((size_t)(*t - start + 1) < segment_len && (*t + 1)->start <= p) {
+    (*t)++;
+    moved++;
+  }
+
+  return moved;
 }
 
-static t_err_type make_buf(t_shell *shell, t_token *start,
-                           const size_t segment_len, t_arena *a, char **buf,
-                           size_t *buf_cap) {
-  const char *p = start->start;
-  const t_token *last = start + (segment_len - 1);
-  const char *end = last->start + last->len;
-
+static t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
+                           t_arena *a, char **buf, size_t *buf_cap) {
+  t_token *t = start;
+  size_t tok_index = 0;
   size_t k = 0;
 
-  bool dq = false;
   bool sq = false;
-  bool word_start = true;
+  bool dq = false;
 
-  while (p < end) {
-    if (*p == '\'' && !dq) {
-      sq = !sq;
-    } else if (*p == '"' && !sq) {
-      dq = !dq;
-    }
-    if (*p == '~' && !sq && !dq && word_start) {
-      expand_tilde(shell, buf, buf_cap, &p, &k, a);
-      word_start = false;
+  while (tok_index < segment_len) {
+    if (redir_tok_found(t)) {
+      t += 2;
+      tok_index += 2;
       continue;
     }
-    if (*p == '$' && !sq && p + 1 < end && !isspace(*(p + 1))) {
-      t_exp_handler h = find_handler(p + 1);
+
+    const char *p = t->start;
+    const char *end = t->start + t->len;
+
+    while (p < end) {
+
+      if (*p == '\'' && !dq)
+        sq = !sq;
+      else if (*p == '"' && !sq)
+        dq = !dq;
+
+      if (*p == '$' && !sq && *(p + 1) && !isspace(*(p + 1))) {
+        t_exp_handler h = find_handler(p + 1);
+        p++;
+
+        t_err_type err = h(shell, buf, buf_cap, &p, &k, a);
+        if (err != err_none)
+          return err;
+
+        tok_index += mov_tok(&t, p, start, segment_len);
+        end = t->start + t->len;
+        continue;
+      }
+
+      char c[2] = {*p, '\0'};
+      append_to_buf(buf, buf_cap, &k, c, a);
       p++;
-
-      t_err_type err = h(shell, buf, buf_cap, &p, &k, a);
-      if (err != err_none)
-        return err;
-
-      word_start = false;
-      continue;
     }
-    char c[2] = {*p, '\0'};
-    append_to_buf(buf, buf_cap, &k, c, a);
-    if (!sq && !dq && word_boundary(*p)) {
-      word_start = true;
-    } else {
-      word_start = false;
+
+    if (tok_index + 1 < segment_len) {
+      const char *after = t->start + t->len;
+      if (*after == ' ')
+        append_to_buf(buf, buf_cap, &k, " ", a);
     }
-    p++;
+
+    t++;
+    tok_index++;
   }
 
   (*buf)[k] = '\0';
@@ -1262,6 +1277,7 @@ void expand_braces_to_stream(t_token_stream *vs, t_token *tok, t_arena *a) {
     push_token(vs, *tok, a);
     return;
   }
+
   size_t pre_len = l;
   char *prefix = arena_alloc(a, pre_len + 1);
   if (pre_len > 0)
@@ -1290,18 +1306,21 @@ void expand_braces_to_stream(t_token_stream *vs, t_token *tok, t_arena *a) {
     size_t alt_len = strlen(alts[i]);
     size_t total_len = pre_len + alt_len + suf_len;
 
-    char *new_str = arena_alloc(a, total_len + 1);
+    char *new_str = arena_alloc(a, total_len + 2);
 
     memcpy(new_str, prefix, pre_len);
     memcpy(new_str + pre_len, alts[i], alt_len);
     memcpy(new_str + pre_len + alt_len, suffix, suf_len);
-    new_str[total_len] = '\0';
 
-    t_token nt = {.type = tok->type, .start = new_str, .len = total_len};
+    new_str[total_len] = ' ';
+    new_str[total_len + 1] = '\0';
+
+    t_token nt = {.type = tok->type, .start = new_str, .len = total_len + 1};
 
     expand_braces_to_stream(vs, &nt, a);
   }
 }
+
 bool has_brace_pattern(t_token *tok) {
 
   if (!tok || tok->len < 3)

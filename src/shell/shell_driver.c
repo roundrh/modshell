@@ -75,7 +75,8 @@ int main(int argc, char **argv) {
 
   atexit(cleanup_global_shell_ptr);
 
-  if (init_shell_state(&shell_state) == -1) {
+  int script = (argc > 1) ? 1 : 0;
+  if (init_shell_state(&shell_state, script) == -1) {
     perror("shell state init fatal fail");
     exit(1);
   }
