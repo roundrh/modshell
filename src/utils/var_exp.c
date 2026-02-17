@@ -984,6 +984,9 @@ static t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
     }
 
     const char *p = t->start;
+    if (*p == '~') {
+      expand_tilde(shell, buf, buf_cap, &p, &k, a);
+    }
     const char *end = t->start + t->len;
 
     while (p < end) {
