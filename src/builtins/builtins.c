@@ -681,6 +681,11 @@ int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
+int rehash_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  refresh_path_bins(shell);
+  return 0;
+}
+
 /**
  * @brief Builtin clear command - clear terminal screen
  * @param node AST node containing command arguments

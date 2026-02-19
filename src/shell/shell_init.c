@@ -182,6 +182,8 @@ static int push_built_ins(t_shell *shell) {
     return -1;
   if (!insert_builtin(&shell->builtins, "builtin", builtin_builtin))
     return -1;
+  if (!insert_builtin(&shell->builtins, "rehash", rehash_builtin))
+    return -1;
 
   return 0;
 }

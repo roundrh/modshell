@@ -142,9 +142,6 @@ int reap_sigchld_jobs(t_shell *shell) {
   return reaped;
 }
 
-static t_shell *g_shell_ptr = NULL;
-void set_global_shell_ptr_chld(t_shell *ptr) { g_shell_ptr = ptr; }
-
 static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
                        bool flow); ///< Forward declaration of function
 static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
@@ -285,7 +282,15 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
   }
 
   if (is_pipeline_child) {
-    execvp(argv[0], argv);
+    char **env = flatten_env(&shell->env, &shell->arena);
+    if (strchr(argv[0], '/')) {
+      execve(argv[0], argv, env);
+    } else {
+      t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
+      if (bin_node) {
+        execve(bin_node->value, argv, env);
+      }
+    }
     fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
     _exit(127);
   }
@@ -311,7 +316,6 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     }
 
     init_ch_sigtable(&(shell->shell_sigtable));
-    set_global_shell_ptr_chld(shell);
 
     char **env = flatten_env(&shell->env, &shell->arena);
     if (strchr(argv[0], '/')) {
@@ -377,8 +381,6 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
       }
     }
 
-    set_global_shell_ptr_chld(shell);
-
     t_builtin *b = (t_builtin *)builtin_ptr->value;
     int exit_status = b->fn(node, shell, argv);
     _exit(exit_status);
@@ -433,7 +435,8 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
   t_region *p;
   size_t off;
-  arena_get_mark(&shell->arena, &p, &off);
+  if (!is_pipeline_child)
+    arena_get_mark(&shell->arena, &p, &off);
 
   char **argv = NULL;
   t_err_type err_ret = expand_make_argv(shell, &argv, node->tok_start,
@@ -469,7 +472,12 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
   /* pid 0 on built in execution -- denotes no fork -- shell last exit status
    * set */
-  arena_rollback(&shell->arena, p, off);
+  if (!is_pipeline_child)
+    arena_rollback(&shell->arena, p, off);
+
+  fflush(stdout);
+  fflush(stdin);
+  fflush(stderr);
   return 0;
 }
 
@@ -499,7 +507,6 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job,
 
     shell->job_control_flag = 0;
     init_ch_sigtable(&(shell->shell_sigtable));
-    set_global_shell_ptr_chld(shell);
 
     exec_list(NULL, node->sub_ast_root, shell, 1, job, flow);
 
@@ -695,7 +702,6 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
         }
 
         init_ch_sigtable(&shell->shell_sigtable);
-        set_global_shell_ptr_chld(shell);
 
         exec_command(exec, shell, job, 1, subshell, pipeline, flow);
 
@@ -718,7 +724,6 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
         }
 
         init_ch_sigtable(&shell->shell_sigtable);
-        set_global_shell_ptr_chld(shell);
 
         exec_command(exec, shell, job, 1, subshell, pipeline, flow);
 
@@ -742,7 +747,6 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
         }
 
         init_ch_sigtable(&shell->shell_sigtable);
-        set_global_shell_ptr_chld(shell);
 
         exec_command(exec, shell, job, 1, subshell, pipeline, flow);
 
@@ -779,7 +783,6 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
     close(pipes[j][0]);
     close(pipes[j][1]);
   }
-
   return last_pid;
 }
 
@@ -859,11 +862,12 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       print_job_info(job);
     return WAIT_FINISHED;
   } else if (!shell->job_control_flag) {
+
     /* builtins set shell exit status - return pid 0 */
     if (lpid > 0) {
       int status;
       pid_t p;
-      while ((p = waitpid(-1, &status, WUNTRACED)) > 0) {
+      while ((p = waitpid(-1, &status, 0)) > 0) {
         if (p == lpid) {
           shell->last_exit_status = WEXITSTATUS(status);
           if (WIFSIGNALED(status))
@@ -901,7 +905,6 @@ static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell,
 
     shell->job_control_flag = 0;
     init_ch_sigtable(&(shell->shell_sigtable));
-    set_global_shell_ptr_chld(shell);
 
     node->background = 0;
 
