@@ -1,7 +1,7 @@
 # modshell (msh)
 A semi-minimal POSIX-lite shell written in C.
 
-Developed over a few months as a side-project to learn low-level programming and as my first project.
+Developed over a few months as a side-project to learn systems programming and as a first project.
 Focuses on educational depth with a simple and readable codebase to make
 complex features (Arenas, TUI implementations (without any external libraries), job control, ASTs, parameter expansions) seem more intuitive.
 
