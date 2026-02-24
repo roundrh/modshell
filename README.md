@@ -5,8 +5,6 @@ Developed over a few months as a side-project to learn systems programming and a
 Focuses on educational depth with a simple and readable codebase to make
 complex features (Arenas, TUI implementations (without any external libraries), job control, ASTs, parameter expansions) seem more intuitive.
 
-This project is still a work in progress.
-
 ## Build
 
 Clone the repository
