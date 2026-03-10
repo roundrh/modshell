@@ -108,7 +108,7 @@ static void clr_sgst(size_t cmd_len, size_t cmd_idx, size_t sgst_len) {
     int n = snprintf(seq, sizeof(seq), "\x1b[%luD", cnt_shift);
     HANDLE_WRITE_FAIL_FATAL(0, seq, n, NULL);
   }
-  HANDLE_WRITE_FAIL_FATAL(0, "\033[0J", 3, NULL);
+  HANDLE_WRITE_FAIL_FATAL(0, "\033[0J", 4, NULL);
 
   if (cnt_shift > 0) {
     int n = snprintf(seq, sizeof(seq), "\x1b[%luC", cnt_shift);

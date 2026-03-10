@@ -21,6 +21,7 @@ void cleanup_global_shell_ptr(void) {
 
 static int add_hist_entry(t_shell *shell, const char *line) {
   t_dll *hist = &shell->history;
+
   if (!push_front_dll(line, hist)) {
     perror("push_front_dll");
     return -1;
@@ -30,6 +31,7 @@ static int add_hist_entry(t_shell *shell, const char *line) {
     t_dllnode *old = hist->tail;
     if (!old)
       break;
+
     hist->tail = old->prev;
     if (hist->tail)
       hist->tail->next = NULL;
@@ -39,6 +41,18 @@ static int add_hist_entry(t_shell *shell, const char *line) {
     free(old->strbg);
     free(old);
     hist->size--;
+  }
+
+  const char *home = getenv_local_ref(&shell->env, "HOME");
+  if (home) {
+    char hist_path[PATH_MAX];
+    snprintf(hist_path, sizeof(hist_path), "%s/.msh_history", home);
+
+    FILE *fp = fopen(hist_path, "a");
+    if (fp) {
+      fprintf(fp, "%s\n", line);
+      fclose(fp);
+    }
   }
 
   return 0;
