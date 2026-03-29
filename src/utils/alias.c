@@ -4,8 +4,8 @@
 void free_alias(void *value) {
   t_alias *a = (t_alias *)value;
   if (a) {
-    free((void *)a->cmd); // Free the strdup'd command
-    free(a);              // Free the struct itself
+    free((void *)a->cmd);
+    free(a);
   }
 }
 
