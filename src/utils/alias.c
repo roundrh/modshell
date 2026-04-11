@@ -10,11 +10,6 @@ void free_alias(void *value) {
 }
 
 t_ht_node *insert_alias(t_hashtable *ht, const char *alias, const char *cmd) {
-  t_ht_node *existing = ht_find(ht, alias);
-  if (existing) {
-    free_alias(existing->value);
-  }
-
   t_alias *a = malloc(sizeof(*a));
   a->cmd = strdup(cmd);
   return ht_insert(ht, alias, a, free_alias);

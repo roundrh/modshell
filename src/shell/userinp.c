@@ -102,18 +102,14 @@ static void rndr_sgst(size_t cmd_len, size_t cmd_idx, t_dllnode *sgst) {
 }
 
 static void clr_sgst(size_t cmd_len, size_t cmd_idx, size_t sgst_len) {
-  char seq[32] = {0};
   size_t cnt_shift = cmd_len - cmd_idx;
-  if (cnt_shift > 0) {
-    int n = snprintf(seq, sizeof(seq), "\x1b[%luD", cnt_shift);
-    HANDLE_WRITE_FAIL_FATAL(0, seq, n, NULL);
-  }
-  HANDLE_WRITE_FAIL_FATAL(0, "\033[0J", 4, NULL);
-
-  if (cnt_shift > 0) {
-    int n = snprintf(seq, sizeof(seq), "\x1b[%luC", cnt_shift);
-    HANDLE_WRITE_FAIL_FATAL(0, seq, n, NULL);
-  }
+  char a[32];
+  snprintf(a, sizeof(a), "\033[D");
+  for (size_t i = 0; i < cnt_shift; i++)
+    tty_write(STDOUT_FILENO, a);
+  snprintf(a, sizeof(a), "\033[C");
+  for (size_t i = 0; i < cnt_shift; i++)
+    tty_write(STDOUT_FILENO, a);
 }
 
 static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
@@ -181,6 +177,7 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   fflush(stdout);
 
   if (suggestion && *suggestion) {
+    clr_sgst(cmd_len, cmd_idx, strlen((*suggestion)->strbg));
     rndr_sgst(cmd_len, cmd_idx, *suggestion);
   }
 }
