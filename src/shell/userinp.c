@@ -31,7 +31,7 @@ int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
   return 0;
 }
 
-static void tty_write(int fd, char *s) {
+static void tty_write(int fd, const char *s) {
   if (s)
     HANDLE_WRITE_FAIL_FATAL(fd, s, strlen(s), NULL);
 }
@@ -130,10 +130,12 @@ static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
 
 void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
                 t_dllnode **suggestion) {
+
+  size_t slen = 0;
   if (suggestion) {
     *suggestion = search_history(shell, cmd, cmd_len, cmd_idx, *suggestion);
     if (*suggestion) {
-      size_t slen = strlen((*suggestion)->strbg);
+      slen = strlen((*suggestion)->strbg);
       clr_sgst(cmd_len, cmd_idx, slen);
     }
   }
@@ -145,8 +147,8 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
     snprintf(a, sizeof(a), "\033[%zuA", last_rows_drawn);
     tty_write(STDOUT_FILENO, a);
   }
-  snprintf(a, sizeof(a), "\r\033[0J");
-  tty_write(STDOUT_FILENO, a);
+
+  tty_write(STDOUT_FILENO, "\r\033[0J");
 
   tty_write(STDOUT_FILENO, shell->prompt);
   tty_write(STDOUT_FILENO, cmd);
@@ -154,24 +156,22 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   size_t total_len = shell->prompt_len + cmd_len;
   size_t target_pos = shell->prompt_len + cmd_idx;
 
-  size_t current_row = (total_len > 0) ? (total_len - 1) / cols : 0;
-  size_t target_row = (target_pos > 0) ? (target_pos - 1) / cols : 0;
+  size_t current_row = (total_len - 1) / cols;
+  size_t target_row = (target_pos - 1) / cols;
   size_t target_col = target_pos % cols;
 
   if (current_row > target_row) {
-    snprintf(a, sizeof(a), "\033[%zuA", current_row - target_row);
+    snprintf(a, sizeof(a), "\033[%zuA", current_row - target_row + 1);
     tty_write(STDOUT_FILENO, a);
   }
 
-  snprintf(a, sizeof(a), "\r");
-  tty_write(STDOUT_FILENO, a);
+  tty_write(STDOUT_FILENO, "\r");
   if (target_col > 0) {
     snprintf(a, sizeof(a), "\x1b[%zuC", target_col);
     tty_write(STDOUT_FILENO, a);
   }
 
   last_rows_drawn = target_row;
-  fflush(stdout);
 
   if (suggestion && *suggestion) {
     rndr_sgst(cmd_len, cmd_idx, *suggestion);
