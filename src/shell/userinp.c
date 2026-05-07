@@ -1,6 +1,8 @@
 #include "userinp.h"
 #include <unistd.h>
 
+static size_t last_rows_drawn = 0;
+
 typedef struct s_completions {
   char **matches;
   size_t count;
@@ -137,8 +139,6 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   }
   int rows, cols;
   get_term_size(&rows, &cols);
-
-  static size_t last_rows_drawn = 0;
 
   char a[32] = {0};
   if (last_rows_drawn > 0) {
@@ -773,8 +773,9 @@ char *read_user_inp(t_shell *shell) {
 
     if (c == '\n' || c == '\r') {
       redraw_cmd(shell, cmd, cmd_len, cmd_idx, NULL);
-      fflush(stdin);
-      fflush(stdout);
+
+      last_rows_drawn = 0;
+
       break;
     }
     if (cmd_len < MAX_COMMAND_LENGTH - 1 && isprint(c)) {
