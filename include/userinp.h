@@ -25,7 +25,7 @@
  * @def INITIAL_COMMAND_LENGTH
  * @brief initial length of line buffer before any realloc calls
  */
-#define INITIAL_COMMAND_LENGTH 1024
+#define INITIAL_COMMAND_LENGTH 512
 #define COLOR_GRAY "\x1b[90m"
 #define COLOR_RESET "\x1b[0m"
 
@@ -33,7 +33,7 @@
  * @def MAX_COMMAND_LENGTH
  * @brief maximum length line buffer reaches before fail
  */
-#define MAX_COMMAND_LENGTH 32769
+#define MAX_COMMAND_LENGTH 32768
 
 /**
  * @def BUF_GROWTH_FACTOR

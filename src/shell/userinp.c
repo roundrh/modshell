@@ -24,9 +24,6 @@ int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
       return -1;
 
     perror("readinp fail: write fatal");
-    if (buffer_ptr) {
-      free(buffer_ptr);
-    }
     return -1;
   }
   return 0;
@@ -53,27 +50,23 @@ void get_term_size(int *rows, int *cols) {
  * function is called in the loop to check if the buffer needs to be reallocated
  * to handle a large capacity of input.
  */
-static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len) {
+static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len,
+                              t_arena *a) {
 
   if (!buf || !(*buf) || !buf_cap || !buf_len || *buf_cap <= 0)
     return -1;
 
   if (*buf_len < *buf_cap - 1)
-    return 0; // no realloc needed
+    return 0;
 
   size_t new_size = (*buf_cap) * BUF_GROWTH_FACTOR;
-  if (new_size >= MAX_COMMAND_LENGTH) {
-    fprintf(stderr, "\ncmd max length reached");
-    free(*buf);
-    *buf = NULL;
-    return -1;
+  if (new_size > MAX_COMMAND_LENGTH) {
+    return 0;
   }
 
-  char *new_buf = realloc(*buf, new_size);
+  char *new_buf = arena_realloc(a, *buf, new_size, *buf_cap);
   if (!new_buf) {
     perror("fail to realloc new_buf");
-    free(*buf);
-    *buf = NULL;
     return -1;
   }
 
@@ -81,7 +74,7 @@ static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len) {
   *buf_cap = new_size;
   new_buf = NULL;
 
-  return 1;
+  return 0;
 }
 
 static void rndr_sgst(size_t cmd_len, size_t cmd_idx, t_dllnode *sgst) {
@@ -196,24 +189,20 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
  * function is called to force the reallocation of the line buffer to a new
  * buffer capacity.
  */
-static int force_realloc_buf(char **buf, size_t *buf_cap, size_t *new_buf_cap) {
+static int force_realloc_buf(char **buf, size_t *buf_cap, size_t *new_buf_cap,
+                             t_arena *a) {
 
   if (!buf || !(*buf) || !buf_cap || !new_buf_cap || *new_buf_cap == 0 ||
       *buf_cap == 0)
     return 0; // bad pass
 
   if (*new_buf_cap >= MAX_COMMAND_LENGTH) {
-    fprintf(stderr, "how did you even get here");
-    free(*buf);
-    *buf = NULL;
     return -1;
   }
 
-  char *new_buf = realloc(*buf, *new_buf_cap);
+  char *new_buf = arena_realloc(a, *buf, *new_buf_cap, *buf_cap);
   if (!new_buf) {
     perror("bad realloc");
-    free(*buf);
-    *buf = NULL;
     return -1;
   }
 
@@ -633,7 +622,7 @@ char *read_user_inp(t_shell *shell) {
 
     redraw_cmd(shell, cmd, cmd_len, cmd_idx, &suggestion_node);
 
-    if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len) == -1)
+    if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len, &shell->arena) == -1)
       return NULL;
     if (sigwinch_flag) {
       sigwinch_flag = 0;
@@ -651,7 +640,6 @@ char *read_user_inp(t_shell *shell) {
       } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
         continue;
       } else {
-        free(cmd);
         return NULL;
       }
     }
@@ -686,7 +674,6 @@ char *read_user_inp(t_shell *shell) {
         } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
           continue;
         } else {
-          free(cmd);
           return NULL;
         }
       }
@@ -694,8 +681,6 @@ char *read_user_inp(t_shell *shell) {
       if (tcsetattr(STDIN_FILENO, TCSANOW,
                     &(shell->term_ctrl.new_term_settings)) == -1) {
         perror("fail to reset terminal");
-        free(cmd);
-        cmd = NULL;
         return cmd;
       }
 
@@ -709,7 +694,7 @@ char *read_user_inp(t_shell *shell) {
 
           size_t n_cap = strlen(ptr->strbg) + 1;
           if (n_cap > cmd_cap) {
-            if (force_realloc_buf(&cmd, &cmd_cap, &n_cap) == -1)
+            if (force_realloc_buf(&cmd, &cmd_cap, &n_cap, &shell->arena) == -1)
               return NULL;
           }
 
@@ -728,7 +713,7 @@ char *read_user_inp(t_shell *shell) {
 
           size_t n_cap = strlen(ptr->strbg) + 1;
           if (n_cap > cmd_cap) {
-            if (force_realloc_buf(&cmd, &cmd_cap, &n_cap) == -1)
+            if (force_realloc_buf(&cmd, &cmd_cap, &n_cap, &shell->arena) == -1)
               return NULL;
           }
 
@@ -744,7 +729,8 @@ char *read_user_inp(t_shell *shell) {
 
             if (cmd_cap < slen + 1) {
               size_t new_cap = slen + 1;
-              if (force_realloc_buf(&cmd, &cmd_cap, &new_cap) == -1)
+              if (force_realloc_buf(&cmd, &cmd_cap, &new_cap, &shell->arena) ==
+                  -1)
                 return NULL;
             }
 
@@ -791,14 +777,8 @@ char *read_user_inp(t_shell *shell) {
       fflush(stdout);
       break;
     }
-    if (cmd_cap < MAX_COMMAND_LENGTH - 1 && isprint(c)) {
+    if (cmd_len < MAX_COMMAND_LENGTH - 1 && isprint(c)) {
       size_t count_shift = cmd_len - cmd_idx;
-      if (cmd_cap <= cmd_len + 1) {
-        size_t n_cap = cmd_cap * BUF_GROWTH_FACTOR;
-        if (force_realloc_buf(&cmd, &cmd_cap, &n_cap) == -1)
-          return NULL;
-      }
-
       memmove(cmd + cmd_idx + 1, cmd + cmd_idx, count_shift);
       cmd[cmd_idx++] = c;
       cmd_len++;

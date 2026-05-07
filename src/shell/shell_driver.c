@@ -3,7 +3,6 @@
 #include "shell_cleanup.h"
 #include "shell_init.h"
 #include "userinp.h"
-#include <asm-generic/errno-base.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
