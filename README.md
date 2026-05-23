@@ -58,7 +58,7 @@ The 3 builds are: all, dev, prod.
 - Full Job Control: `fg`, `bg`, `jobs`
 - AST Parser to allow for complex commands
 - Hashtables for aliases, builtins, environment entries, and PATH caching
-- Heredoc (Doesnt expand yet)
+- Heredoc with expansions and leading tab removal
 - Basic redirections `<`, `>`, `>>`
 - Aliases
 ## License
