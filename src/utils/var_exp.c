@@ -381,14 +381,18 @@ static size_t skip_alnum_us(const char **p) {
   }
   return len;
 }
-static t_param_op get_param_op(t_shell *shell, const char *src) {
+static t_param_op get_param_op(t_shell *shell, const char *src,
+                               size_t src_len) {
+
+  if (src_len == 0)
+    return PARAM_OP_ERR;
 
   const char *op = src;
   if (*op == '#')
     return PARAM_OP_LEN;
+
   size_t comparator = skip_alnum_us(&op);
-  size_t len = strlen(src) - 1;
-  if (comparator == len) {
+  if (comparator == src_len) {
     return PARAM_OP_NONE;
   } else {
     if (*op == ':' && *(op + 1) == '-')
@@ -797,7 +801,7 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
   if (brace_depth != 0 || *end != '}')
     return err_syntax;
 
-  t_param_op op = get_param_op(shell, start);
+  t_param_op op = get_param_op(shell, start, end - start);
   if (op == PARAM_OP_ERR)
     return err_syntax;
 
