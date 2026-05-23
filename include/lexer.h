@@ -20,6 +20,7 @@ typedef enum e_token_type {
   TOKEN_APPEND,
   TOKEN_INPUT,
   TOKEN_HEREDOC,
+  TOKEN_HEREDOC_STRIP,
   TOKEN_OPEN_PAR,
   TOKEN_CLOSE_PAR,
   TOKEN_PIPE,
@@ -56,6 +57,6 @@ typedef struct s_token_stream {
 
 int init_token_stream(t_token_stream *token_stream, t_arena *a);
 int lex_command_line(char **cmd_buf, t_token_stream *tokens,
-                     t_hashtable *aliases, int depth, t_arena *a);
+                     t_hashtable *aliases, int depth, t_arena *a, bool hd);
 
 #endif // ! LEXER_H

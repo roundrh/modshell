@@ -57,7 +57,8 @@ typedef enum e_redir_types {
   IO_APPEND,  ///< Append Redirection (>>)
   IO_TRUNC,   ///< Truncate Redirection (>)
   IO_HEREDOC, ///< Heredoc Redirection (<<)
-  IO_INPUT    ///< Input Redirection (<)
+  IO_HEREDOC_STRIP,
+  IO_INPUT ///< Input Redirection (<)
 
 } t_redir_type;
 

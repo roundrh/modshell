@@ -345,6 +345,8 @@ void init_env(t_shell *shell) {
  */
 int init_shell_state(t_shell *shell, int script) {
 
+  shell->exflag = 0;
+
   arena_init(&shell->arena);
   get_term_size(&shell->rows, &shell->cols);
 

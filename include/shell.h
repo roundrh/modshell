@@ -53,6 +53,8 @@ typedef struct shell_s {
   char *prompt;
   char *sh_name;
 
+  bool exflag;
+
   t_arena arena;
   t_shell_sigtable shell_sigtable;
   t_term_ctrl term_ctrl;

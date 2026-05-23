@@ -12,6 +12,11 @@
  * Module declares functions for parser.
  */
 
+typedef enum e_err_script {
+
+  MSNG_TERMINATOR = -1
+} t_script_err;
+
 /**
  * @def build_ast(t_ast* ast, t_command* command)
  * @param ast pointer to ast struct

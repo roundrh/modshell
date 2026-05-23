@@ -107,6 +107,8 @@ typedef struct s_exp_map {
   t_exp_handler handler; /// Function pointer to handler
 } t_exp_map;
 
+void strip_quotes(char *str);
+
 int add_to_env(t_shell *shell, const char *var, const char *val);
 char *getenv_local(t_hashtable *env, const char *var_name, t_arena *a);
 const char *getenv_local_ref(t_hashtable *env, const char *var_name);
@@ -158,5 +160,8 @@ t_err_type expand_var(t_shell *shell, char **buf, size_t *buf_cap,
  */
 t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *start,
                             const size_t segment_len, t_arena *a);
+
+t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
+                    t_arena *a, char **buf, size_t *buf_cap, bool hd);
 
 #endif // ! VAR_EXP_H

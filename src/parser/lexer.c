@@ -22,6 +22,11 @@ t_token_type get_token_type(const char *c, size_t *len) {
   if (!c || !len)
     return -1;
 
+  if (c[0] == '<' && c[1] == '<' && c[2] == '-') {
+    *len = 3;
+    return TOKEN_HEREDOC_STRIP;
+  }
+
   if (c[0] == '|' && c[1] == '|') {
     *len = 2;
     return TOKEN_OR;
@@ -219,7 +224,7 @@ static int expand_alias_token(char **cmd_line_buf, t_hashtable *aliases,
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop
  * cond cmd_buf[i+1] can be '\0' but never UB*/
 int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
-                     t_hashtable *aliases, int depth, t_arena *a) {
+                     t_hashtable *aliases, int depth, t_arena *a, bool hd) {
 
   /* alias depth */
   if (depth > 10) {
@@ -254,14 +259,24 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
       }
     } else if (!in_single_quote && !in_double_quote) {
 
-      char seq[3] = {cmd_buf[i], cmd_buf[i + 1], '\0'};
+      char seq[4] = {cmd_buf[i], cmd_buf[i + 1], cmd_buf[i + 2], '\0'};
       t_token_type type = get_token_type(seq, &op_len);
 
       if (cmd_buf[i] == ' ' || cmd_buf[i] == '\t') {
-        flush_word(token_stream, &tok_start, &word_len, &tokenized,
-                   &token_count, in_single_quote || in_double_quote);
-        i++;
-        continue;
+        if (hd) {
+          if (!tokenized) {
+            tok_start = &cmd_buf[i];
+            tokenized = true;
+          }
+          word_len++;
+          i++;
+          continue;
+        } else {
+          flush_word(token_stream, &tok_start, &word_len, &tokenized,
+                     &token_count, in_single_quote || in_double_quote);
+          i++;
+          continue;
+        }
       } else if (type != TOKEN_SIMPLE) {
 
         flush_word(token_stream, &tok_start, &word_len, &tokenized,
@@ -300,12 +315,15 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   flush_word(token_stream, &tok_start, &word_len, &tokenized, &token_count,
              in_single_quote || in_double_quote);
 
-  /* state should never still be in quotes */
   if (in_single_quote || in_double_quote) {
     fprintf(stderr, "\nmsh: syntax err unbalanced quotes");
     return -1;
   }
   token_stream->tokens_arr_len = token_count;
+
+  if (hd) {
+    return 0;
+  }
 
   int expanded = expand_alias_token(cmd_line_buf, aliases, token_stream, a);
   if (expanded < 0)
@@ -313,7 +331,8 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
 
   if (expanded == 1) {
     init_token_stream(token_stream, a);
-    return lex_command_line(cmd_line_buf, token_stream, aliases, depth + 1, a);
+    return lex_command_line(cmd_line_buf, token_stream, aliases, depth + 1, a,
+                            hd);
   }
 
   return 0;

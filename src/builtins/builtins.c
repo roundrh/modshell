@@ -4,6 +4,8 @@
  */
 
 #include "builtins.h"
+#include "executor.h"
+#include "jobs.h"
 #include "shell.h"
 #include "shell_init.h"
 #include "var_exp.h"
@@ -776,9 +778,29 @@ int exit_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   /* perform last sweep reap */
   update_no_noti_jobs(shell);
 
+  if (shell->exflag)
+    goto exit;
+
+  t_job *job;
+  size_t i = 0;
+  while (i < shell->job_table_cap) {
+    job = shell->job_table[i];
+    if (!job) {
+      i++;
+      continue;
+    }
+    if (job->state == S_STOPPED && job->position == P_BACKGROUND) {
+      shell->exflag = 1;
+      fprintf(stderr, "\nmsh: you have running background jobs");
+      return -1;
+    }
+
+    i++;
+  }
+exit:
   exit(exit_status);
 
-  return 0; ///< Suppress err (unreachable)
+  return 0;
 }
 
 /**

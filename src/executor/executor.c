@@ -33,6 +33,7 @@ int exec_script(t_shell *shell, const char *path) {
   }
 
   char *line = NULL;
+  size_t lc = 0;
   size_t cap = 0;
   char *total_buf = NULL;
   if (getline(&line, &cap, script) != -1) {
@@ -53,7 +54,10 @@ int exec_script(t_shell *shell, const char *path) {
       total_buf = NULL;
       shell->last_exit_status = 0;
       arena_reset(&shell->arena);
+    } else {
+      fprintf(stderr, "line %zu: missing terminator", lc);
     }
+    lc++;
   }
   if (total_buf != NULL) {
     fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
@@ -451,6 +455,8 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
   job->command = strdup(argv[0]);
 
   t_ht_node *builtin_imp = ht_find(&shell->builtins, argv[0]);
+  if (builtin_imp && strcmp(builtin_imp->key, "exit") != 0)
+    shell->exflag = 0;
   if (builtin_imp && strcmp(builtin_imp->key, "v") == 0)
     builtin_imp = NULL;
   else if (!builtin_imp && is_set_var(argv)) {
@@ -1054,7 +1060,7 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   init_token_stream(token_stream, &shell->arena);
   t_hashtable *aliases = &(shell->aliases);
-  if (lex_command_line(cmd_buf, token_stream, aliases, 0, &shell->arena) ==
+  if (lex_command_line(cmd_buf, token_stream, aliases, 0, &shell->arena, 0) ==
       -1) {
     return -1;
   }

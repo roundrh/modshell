@@ -1,4 +1,6 @@
 #include "parser.h"
+#include "ast.h"
+#include "lexer.h"
 
 /**
  * @file parser.c
@@ -95,7 +97,7 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
 
   for (int i = start; i <= end; i++) {
 
-    if (count_redir >= capacity - 2) {
+    if (count_redir >= capacity - 1) {
       if (handle_realloc_io_redir(node, &capacity, a) == -1) {
         fprintf(stderr, "\nmsh: command exceeds maximum redirections.");
         return -1;
@@ -115,6 +117,7 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
       node->io_redir[count_redir]->filename = NULL;
       if (token_stream->tokens[i].len >= FILE_NAME_MAX) {
         fprintf(stderr, "\nInvalid filename");
+        return -1;
       }
 
       strncpy(buf, token_stream->tokens[i].start, token_stream->tokens[i].len);
@@ -146,6 +149,10 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
     } else if (token_stream->tokens[i].type == TOKEN_APPEND) {
       filename_prober = 1;
       pending = IO_APPEND;
+      node->redir_bool = 1;
+    } else if (token_stream->tokens[i].type == TOKEN_HEREDOC_STRIP) {
+      filename_prober = 1;
+      pending = IO_HEREDOC_STRIP;
       node->redir_bool = 1;
     }
   }
@@ -749,7 +756,7 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
     int redir_count =
         scan_redirections(node, ts, last_close_par_idx + 1, end, a);
     if (redir_count == -1)
-      goto fail;
+      return NULL;
 
     node->op_type = OP_SUBSHELL;
 

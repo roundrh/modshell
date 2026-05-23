@@ -1,6 +1,7 @@
 #include "var_exp.h"
 #include "builtins.h"
 #include "hashtable.h"
+#include "lexer.h"
 #include <stdlib.h>
 
 static const t_exp_map g_jump_table[] = {
@@ -437,6 +438,8 @@ static int redir_tok_found(t_token *tok) {
   if (tok->type == TOKEN_TRUNC)
     return 1;
   if (tok->type == TOKEN_INPUT)
+    return 1;
+  if (tok->type == TOKEN_HEREDOC_STRIP)
     return 1;
 
   return 0;
@@ -967,8 +970,8 @@ static size_t mov_tok(t_token **t, const char *p, t_token *start,
   return moved;
 }
 
-static t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
-                           t_arena *a, char **buf, size_t *buf_cap) {
+t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
+                    t_arena *a, char **buf, size_t *buf_cap, bool hd) {
   t_token *t = start;
   size_t tok_index = 0;
   size_t k = 0;
@@ -977,14 +980,14 @@ static t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
   bool dq = false;
 
   while (tok_index < segment_len) {
-    if (redir_tok_found(t)) {
+    if (!hd && redir_tok_found(t)) {
       t += 2;
       tok_index += 2;
       continue;
     }
 
     const char *p = t->start;
-    if (*p == '~') {
+    if (!hd && *p == '~') {
       expand_tilde(shell, buf, buf_cap, &p, &k, a);
     }
     const char *end = t->start + t->len;
@@ -1047,7 +1050,7 @@ static char *expand_recursive(t_shell *shell, char *str, t_arena *a,
   size_t buf_cap = 2048;
   char *buf = arena_alloc(a, buf_cap);
 
-  make_buf(shell, &temp_tok, 1, a, &buf, &buf_cap);
+  make_buf(shell, &temp_tok, 1, a, &buf, &buf_cap, 0);
 
   return buf;
 }
@@ -1413,7 +1416,7 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
     return err_fatal;
 
   t_err_type err =
-      make_buf(shell, vs.tokens, vs.tokens_arr_len, a, &buf, &buf_cap);
+      make_buf(shell, vs.tokens, vs.tokens_arr_len, a, &buf, &buf_cap, 0);
   switch (err) {
   case err_fatal:
     fprintf(stderr, "\nmsh: fatal expansion error");
