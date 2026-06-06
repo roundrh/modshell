@@ -61,5 +61,6 @@ The 3 builds are: all, dev, prod.
 - Heredoc with expansions and leading tab removal
 - Basic redirections `<`, `>`, `>>`
 - Aliases
+- Functions (Doesnt support local vars or $1 push yet - $1 taken from shell startup when calling a script: ./script.sh $1 $2 .. $n)
 ## License
 MIT
