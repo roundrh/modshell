@@ -2,7 +2,7 @@
 #define SHELL_INIT_H
 
 #include "alias.h"
-#include "ast_init.h"
+#include "ast.h"
 #include "builtins.h"
 #include "hashtable.h"
 #include "lexer.h"

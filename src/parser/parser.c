@@ -33,12 +33,13 @@ static int find_at_depth(t_token_stream *ts, int start, int end,
       return i;
 
     if (t == TOKEN_IF || t == TOKEN_WHILE || t == TOKEN_OPEN_PAR ||
-        t == TOKEN_FOR)
+        t == TOKEN_FOR || t == TOKEN_LBRACE)
       depth++;
     if (depth == 1 && t == wanted)
       return i;
 
-    if (t == TOKEN_FI || t == TOKEN_DONE || t == TOKEN_CLOSE_PAR)
+    if (t == TOKEN_FI || t == TOKEN_DONE || t == TOKEN_CLOSE_PAR ||
+        t == TOKEN_RBRACE)
       depth--;
 
     if (depth < 0)
@@ -209,10 +210,11 @@ static int next_terminator_index(t_token_stream *ts, int start, int end) {
     t_token_type type = ts->tokens[i].type;
 
     if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_OPEN_PAR ||
-        type == TOKEN_FOR) {
+        type == TOKEN_FOR || type == TOKEN_LBRACE) {
       depth++;
     }
-    if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_CLOSE_PAR) {
+    if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_CLOSE_PAR ||
+        type == TOKEN_RBRACE) {
       depth--;
     }
 
@@ -324,6 +326,7 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
   int cond_flag = -1;
   int par_depth = 0;
   int flow_depth = 0;
+  int brace_depth = 0;
 
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
@@ -338,7 +341,12 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
     else if (type == TOKEN_FI || type == TOKEN_DONE)
       flow_depth--;
 
-    if (par_depth == 0 && flow_depth == 0) {
+    if (type == TOKEN_LBRACE)
+      brace_depth++;
+    else if (type == TOKEN_RBRACE)
+      brace_depth--;
+
+    if (par_depth == 0 && flow_depth == 0 && brace_depth == 0) {
       if (type == TOKEN_AND) {
         last_conditional_index = i;
         cond_flag = OP_AND;
@@ -351,6 +359,10 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
 
   if (par_depth != 0) {
     fprintf(stderr, "\nmsh: syntax error unbalanced parantheses");
+    return NULL;
+  }
+  if (brace_depth != 0) {
+    fprintf(stderr, "\nmsh: syntax error unbalanced compound braces\n");
     return NULL;
   }
 
@@ -413,6 +425,7 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
   int last_pipe_index = -1;
   int par_depth = 0;
   int flow_depth = 0;
+  int brace_depth = 0;
 
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
@@ -427,13 +440,23 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
     else if (type == TOKEN_FI || type == TOKEN_DONE)
       flow_depth--;
 
-    if (par_depth == 0 && flow_depth == 0 && type == TOKEN_PIPE) {
+    if (type == TOKEN_LBRACE)
+      brace_depth++;
+    else if (type == TOKEN_RBRACE)
+      brace_depth--;
+
+    if (par_depth == 0 && flow_depth == 0 && brace_depth == 0 &&
+        type == TOKEN_PIPE) {
       last_pipe_index = i;
     }
   }
 
   if (par_depth != 0) {
     fprintf(stderr, "\nmsh: syntax error unbalanced parantheses");
+    return NULL;
+  }
+  if (brace_depth != 0) {
+    fprintf(stderr, "\nmsh: syntax error unbalanced braces");
     return NULL;
   }
 
@@ -593,7 +616,7 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
     if (type == TOKEN_WHILE || type == TOKEN_FOR || type == TOKEN_OPEN_PAR ||
-        type == TOKEN_IF)
+        type == TOKEN_IF || type == TOKEN_LBRACE)
       depth++;
     if (depth == 1) {
       if (type == TOKEN_DO)
@@ -601,7 +624,8 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
       if (type == TOKEN_DONE)
         done_idx = i;
     }
-    if (type == TOKEN_DONE || type == TOKEN_CLOSE_PAR || type == TOKEN_FI)
+    if (type == TOKEN_DONE || type == TOKEN_CLOSE_PAR || type == TOKEN_FI ||
+        type == TOKEN_RBRACE)
       depth--;
   }
   if (do_idx == -1 || done_idx == -1) {
@@ -637,8 +661,6 @@ static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
-  if (!node)
-    goto fail;
   init_ast_node(node);
   node->op_type = OP_FOR;
 
@@ -662,9 +684,10 @@ static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end,
     t_token_type t = ts->tokens[i].type;
 
     if (t == TOKEN_IF || t == TOKEN_FOR || t == TOKEN_WHILE ||
-        t == TOKEN_OPEN_PAR)
+        t == TOKEN_OPEN_PAR || t == TOKEN_LBRACE)
       depth++;
-    if (t == TOKEN_FI || t == TOKEN_DONE || t == TOKEN_CLOSE_PAR)
+    if (t == TOKEN_FI || t == TOKEN_DONE || t == TOKEN_CLOSE_PAR ||
+        t == TOKEN_RBRACE)
       depth--;
 
     if (t == TOKEN_DO && depth == 1 && do_idx == -1) {
@@ -697,9 +720,43 @@ static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   return node;
-fail:
-  perror("malloc");
-  exit(12);
+}
+
+static t_ast_n *parse_function(t_ast *ast, t_token_stream *ts, int start,
+                               int end, t_arena *a) {
+
+  if (start > end)
+    return NULL;
+
+  t_ast_n *node = arena_alloc(a, sizeof(t_ast_n));
+  if (!node)
+    return NULL;
+  init_ast_node(node);
+
+  node->op_type = OP_FUN;
+  node->tok_start = &ts->tokens[start];
+  node->tok_segment_len = (end - start) + 1;
+
+  int body_start = start + 1;
+  while (body_start <= end && ts->tokens[body_start].type != TOKEN_LBRACE)
+    body_start++;
+
+  int body_end = end;
+  while (body_end > body_start && ts->tokens[body_end].type != TOKEN_RBRACE)
+    body_end--;
+
+  if (body_end == body_start || ts->tokens[body_start].type != TOKEN_LBRACE ||
+      ts->tokens[body_end].type != TOKEN_RBRACE) {
+    fprintf(stderr, "\nmsh: malformed function block");
+    return NULL;
+  }
+
+  node->sub_ast_root =
+      parse_terminators(ast, ts, body_start + 1, body_end - 1, a);
+  if (!node->sub_ast_root)
+    return NULL;
+
+  return node;
 }
 
 static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
@@ -716,6 +773,8 @@ static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
     return parse_while(ast, ts, start, end, a);
   } else if (type == TOKEN_FOR) {
     return parse_for(ast, ts, start, end, a);
+  } else if (type == TOKEN_FUN) {
+    return parse_function(ast, ts, start, end, a);
   }
   return parse_command(ast, ts, start, end, a);
 }

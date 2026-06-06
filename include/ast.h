@@ -43,7 +43,8 @@ typedef enum e_op_types {
   OP_SUBSHELL,
   OP_IF,
   OP_WHILE,
-  OP_FOR
+  OP_FOR,
+  OP_FUN
 } t_op_type;
 
 /**
@@ -108,5 +109,10 @@ typedef struct s_ast {
 
   t_ast_n *root;
 } t_ast;
+
+int init_ast_node(t_ast_n *ast_node);
+int init_ast(t_ast *ast);
+void free_heap_ast(void *value);
+t_ast_n *clone_heap_ast(const t_ast_n *src);
 
 #endif // ! AST_H

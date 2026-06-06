@@ -39,6 +39,7 @@ typedef struct shell_s {
   t_hashtable env;
   t_hashtable builtins;
   t_hashtable aliases;
+  t_hashtable functions;
 
   t_job **job_table;
   t_job *fg_job;

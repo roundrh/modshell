@@ -54,6 +54,7 @@ void cleanup_shell(t_shell *shell, int is_chld) {
   ht_flush(&shell->builtins, free_builtin);
   ht_flush(&shell->env, free_env_entry);
   ht_flush(&shell->bins, free);
+  ht_flush(&shell->functions, free_heap_ast);
 
   if (isatty(shell->tty_fd) && shell->is_interactive && !is_chld) {
     if (reset_terminal_mode(shell) == -1) {

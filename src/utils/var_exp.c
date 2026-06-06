@@ -543,14 +543,18 @@ t_err_type expand_arith(t_shell *shell, char **buf, size_t *buf_cap,
       ad++;
     } else if ((*p)[len] == ')') {
       ad--;
-      if (ad == 0)
+      if (ad == 0) {
+        len++;
         break;
+      }
     }
 
     len++;
   }
-  if (ad != 0 || (*p)[len] == '\0')
+  if (ad != 0)
     return err_syntax;
+
+  len -= 2;
 
   char *w = arena_alloc(a, len + 1);
   memcpy(w, *p, len);
@@ -1021,10 +1025,8 @@ t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
       p++;
     }
 
-    if (tok_index + 1 < segment_len) {
-      const char *after = t->start + t->len;
-      if (*after == ' ')
-        append_to_buf(buf, buf_cap, &k, " ", a);
+    if (t->trailing_delim) {
+      append_to_buf(buf, buf_cap, &k, " ", a);
     }
 
     t++;
@@ -1049,7 +1051,10 @@ static char *expand_recursive(t_shell *shell, char *str, t_arena *a,
     return p;
   }
 
-  t_token temp_tok = {.type = TOKEN_SIMPLE, .start = str, .len = strlen(str)};
+  t_token temp_tok = {.type = TOKEN_SIMPLE,
+                      .start = str,
+                      .len = strlen(str),
+                      .trailing_delim = '\0'};
 
   size_t buf_cap = 2048;
   char *buf = arena_alloc(a, buf_cap);

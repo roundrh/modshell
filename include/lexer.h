@@ -23,6 +23,8 @@ typedef enum e_token_type {
   TOKEN_HEREDOC_STRIP,
   TOKEN_OPEN_PAR,
   TOKEN_CLOSE_PAR,
+  TOKEN_LBRACE,
+  TOKEN_RBRACE,
   TOKEN_PIPE,
   TOKEN_OR,
   TOKEN_AND,
@@ -38,6 +40,7 @@ typedef enum e_token_type {
   TOKEN_IN,
   TOKEN_DO,
   TOKEN_DONE,
+  TOKEN_FUN,
   TOKEN_NEWLINE
 } t_token_type;
 
@@ -46,6 +49,7 @@ typedef struct s_token {
   char *start;
   size_t len;
   t_token_type type;
+  char trailing_delim;
 } t_token;
 
 typedef struct s_token_stream {

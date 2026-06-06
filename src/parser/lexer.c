@@ -11,8 +11,8 @@ int init_token_stream(t_token_stream *token_stream, t_arena *a) {
     token_stream->tokens[i].type = -1;
     token_stream->tokens[i].start = NULL;
     token_stream->tokens[i].len = 0;
+    token_stream->tokens[i].trailing_delim = '\0';
   }
-
   token_stream->tokens_arr_len = 0;
   return 0;
 }
@@ -77,6 +77,15 @@ t_token_type get_token_type(const char *c, size_t *len) {
     return TOKEN_NEWLINE;
   }
 
+  if (c[0] == '{') {
+    *len = 1;
+    return TOKEN_LBRACE;
+  }
+  if (c[0] == '}') {
+    *len = 1;
+    return TOKEN_RBRACE;
+  }
+
   return TOKEN_SIMPLE;
 }
 
@@ -119,6 +128,7 @@ static int check_realloc_toks_arr(t_token_stream *ts, size_t tok_count,
     ts->tokens[i].len = 0;
     ts->tokens[i].type = -1;
     ts->tokens[i].start = NULL;
+    ts->tokens[i].trailing_delim = '\0';
   }
 
   ts->tokens_arr_cap = ncap;
@@ -127,9 +137,14 @@ static int check_realloc_toks_arr(t_token_stream *ts, size_t tok_count,
 }
 
 static void flush_word(t_token_stream *ts, char **tok_start, size_t *tok_len,
-                       bool *tokenized, size_t *tok_count, bool quoted) {
+                       bool *tokenized, size_t *tok_count, bool quoted,
+                       char delim) {
   if (*tokenized == false)
     return;
+
+  if (delim != ';' && delim != '\n' && delim != '\0' && delim != ' ' &&
+      delim != '\t')
+    delim = '\0';
 
   ts->tokens[*tok_count].start = *tok_start;
   ts->tokens[*tok_count].len = *tok_len;
@@ -139,6 +154,8 @@ static void flush_word(t_token_stream *ts, char **tok_start, size_t *tok_len,
   } else {
     ts->tokens[*tok_count].type = TOKEN_SIMPLE;
   }
+
+  ts->tokens[*tok_count].trailing_delim = delim;
 
   (*tok_count)++;
   *tok_start = NULL;
@@ -221,6 +238,16 @@ static int expand_alias_token(char **cmd_line_buf, t_hashtable *aliases,
   return 0;
 }
 
+static inline bool is_tok_fun(char *cmd_buf, size_t i, t_token_stream *ts,
+                              size_t tc, t_token_type ctype) {
+  return (ctype == TOKEN_OPEN_PAR && cmd_buf[i + 1] == ')' && tc > 0 &&
+          ts->tokens[tc - 1].type == TOKEN_SIMPLE && cmd_buf[i - 1] != ' ');
+}
+static inline bool is_delim(char c) {
+  return (c == ' ' || c == '\t' || c == ';' || c == '\n' || c == '|' ||
+          c == '&' || c == '\0' || c == ')');
+}
+
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop
  * cond cmd_buf[i+1] can be '\0' but never UB*/
 int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
@@ -258,9 +285,31 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
         tokenized = true;
       }
     } else if (!in_single_quote && !in_double_quote) {
-
-      char seq[4] = {cmd_buf[i], cmd_buf[i + 1], cmd_buf[i + 2], '\0'};
+      char seq[4];
+      if (cmd_buf[i + 1] != '\0') {
+        seq[0] = cmd_buf[i];
+        seq[1] = cmd_buf[i + 1];
+        seq[2] = cmd_buf[i + 2];
+        seq[3] = '\0';
+      } else {
+        seq[0] = cmd_buf[i];
+        seq[1] = cmd_buf[i + 1];
+        seq[2] = '\0';
+        seq[3] = '\0';
+      }
       t_token_type type = get_token_type(seq, &op_len);
+
+      if (type == TOKEN_LBRACE) {
+        if (i > 0 && (!is_delim(cmd_buf[i - 1]) || !is_delim(cmd_buf[i + 1]))) {
+          type = TOKEN_SIMPLE;
+          op_len = 1;
+        }
+      } else if (type == TOKEN_RBRACE) {
+        if (i > 0 && (!is_delim(cmd_buf[i - 1]) || !is_delim(cmd_buf[i + 1]))) {
+          type = TOKEN_SIMPLE;
+          op_len = 1;
+        }
+      }
 
       if (cmd_buf[i] == ' ' || cmd_buf[i] == '\t') {
         if (hd) {
@@ -273,17 +322,29 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
           continue;
         } else {
           flush_word(token_stream, &tok_start, &word_len, &tokenized,
-                     &token_count, in_single_quote || in_double_quote);
+                     &token_count, in_single_quote || in_double_quote,
+                     cmd_buf[i]);
           i++;
           continue;
         }
       } else if (type != TOKEN_SIMPLE) {
 
         flush_word(token_stream, &tok_start, &word_len, &tokenized,
-                   &token_count, in_single_quote || in_double_quote);
+                   &token_count, in_single_quote || in_double_quote,
+                   cmd_buf[i]);
+
+        if (is_tok_fun(cmd_buf, i, token_stream, token_count, type)) {
+          i += 2;
+          token_stream->tokens[token_count - 1].type = TOKEN_FUN;
+          token_stream->tokens[token_count - 1].len += 2;
+          token_stream->tokens[token_count - 1].trailing_delim = ' ';
+          continue;
+        }
+
         token_stream->tokens[token_count].start = &cmd_buf[i];
         token_stream->tokens[token_count].len = op_len;
         token_stream->tokens[token_count].type = type;
+
         token_count++;
         tokenized = false;
 
@@ -313,12 +374,13 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   }
 
   flush_word(token_stream, &tok_start, &word_len, &tokenized, &token_count,
-             in_single_quote || in_double_quote);
+             in_single_quote || in_double_quote, cmd_buf[i]);
 
   if (in_single_quote || in_double_quote) {
     fprintf(stderr, "\nmsh: syntax err unbalanced quotes");
     return -1;
   }
+
   token_stream->tokens_arr_len = token_count;
 
   if (hd) {

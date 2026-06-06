@@ -397,6 +397,8 @@ int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
+int nop_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
+
 int stty_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   (void)node;
@@ -465,7 +467,7 @@ int test_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   while (argv[argc])
     argc++;
 
-  if (argc < 2 || strcmp(argv[argc - 1], "]") != 0) {
+  if (argc < 2 || *(argv[argc - 1]) != ']') {
     fprintf(stderr, "msh: expected ']'\n");
     return 2;
   }

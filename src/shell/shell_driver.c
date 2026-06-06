@@ -59,22 +59,22 @@ static int add_hist_entry(t_shell *shell, const char *line) {
 
 void make_argl(t_shell *shell, int argc, char **argv) {
 
-  if (argc <= 2) {
+  if (argc <= 1) {
     shell->argc = 0;
     shell->argv = NULL;
     return;
   }
 
-  shell->argc = argc - 2;
+  shell->argc = argc - 1;
 
   shell->argv = malloc(sizeof(char *) * (shell->argc + 1));
   if (!shell->argv) {
     perror("malloc argl");
-    exit(1);
+    exit(12);
   }
 
   for (int i = 0; i < shell->argc; i++) {
-    shell->argv[i] = argv[i + 2];
+    shell->argv[i] = argv[i + 1];
   }
   shell->argv[shell->argc] = NULL;
 }

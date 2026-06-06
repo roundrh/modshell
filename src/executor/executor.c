@@ -1,4 +1,6 @@
 #include "executor.h"
+#include "ast.h"
+#include "jobs.h"
 
 typedef enum e_pgrp {
 
@@ -277,6 +279,55 @@ static t_process *make_process(pid_t pid) {
   return process;
 }
 
+static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
+                         int is_pipeline_child, int subshell, t_ast_n *pipeline,
+                         t_ht_node *fn, char **argv) {
+  pid_t pid = fork();
+  if (pid == -1) {
+    perror("fork");
+    return -1;
+  }
+  if (job->pgid == -1)
+    job->pgid = pid;
+
+  if (pid == 0) {
+
+    init_ch_sigtable(&(shell->shell_sigtable));
+
+    if (!subshell) {
+      if (setpgid(0, job->pgid) < 0) {
+        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
+          perror("280: setpgid");
+          _exit(EXIT_FAILURE);
+        }
+      }
+    }
+
+    exec_list(NULL, (t_ast_n *)fn->value, shell, subshell, job, false);
+    while (waitpid(-job->pgid, NULL, 0) > 0)
+      ;
+    _exit(shell->last_exit_status);
+  } else if (shell->job_control_flag) {
+
+    if (setpgid(pid, job->pgid) == -1) {
+      if (errno != EPERM && errno != EACCES && errno != ESRCH) {
+        perror("230: parent setpgid");
+        return -1;
+      }
+    }
+    t_process *process = make_process(pid);
+    if (!process)
+      return -1;
+    if (add_process_to_job(job, process) == -1) {
+      perror("fail to add process to job");
+      return -1;
+    }
+    job->last_pid = pid;
+  }
+
+  return pid;
+}
+
 static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
                              int is_pipeline_child, int subshell,
                              t_ast_n *pipeline, char **argv) {
@@ -303,7 +354,7 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
   if (pid == -1) {
     perror("fork fail exec_extern");
     return -1;
-  } // fork error.
+  }
 
   if (job->pgid == -1)
     job->pgid = pid;
@@ -367,7 +418,7 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
   if (pid == -1) {
     perror("fork fail exec_extern");
     return -1;
-  } // fork error.
+  }
 
   if (job->pgid == -1)
     job->pgid = pid;
@@ -454,6 +505,15 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
   }
   job->command = strdup(argv[0]);
 
+  t_ht_node *fn_node = ht_find(&shell->functions, argv[0]);
+  if (fn_node && job->position == P_FOREGROUND) {
+    shell->last_exit_status =
+        exec_list(NULL, fn_node->value, shell, is_subshell, job, flow);
+    return 0;
+  } else if (fn_node && job->position == P_BACKGROUND) {
+    return exec_bg_fun(shell, node, job, is_pipeline_child, is_subshell,
+                       pipeline, fn_node, argv);
+  }
   t_ht_node *builtin_imp = ht_find(&shell->builtins, argv[0]);
   if (builtin_imp && strcmp(builtin_imp->key, "exit") != 0)
     shell->exflag = 0;
@@ -554,13 +614,14 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
   if (!node)
     return -1;
 
-  int restore_io_flag = 0;
+  bool restore_io_flag = 0;
   if (node->redir_bool) {
     if (redirect_io(shell, node) == -1) {
       fprintf(stderr, "\nErr redir io");
       return -1;
     }
-    node->redir_bool = 0;
+    if (!flow)
+      node->redir_bool = 0;
     restore_io_flag = 1;
   }
 
@@ -946,6 +1007,23 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
     return WAIT_INTERRUPTED;
 
   switch (node->op_type) {
+  case OP_FUN: {
+    t_ast_n *clone = clone_heap_ast(node->sub_ast_root);
+    if (!clone) {
+      perror("clone");
+      return -1;
+    }
+    size_t len = node->tok_start->len - 2;
+    char *buf = arena_alloc(&shell->arena, len + 1);
+    memcpy(buf, node->tok_start->start, len);
+    buf[len] = '\0';
+    if (!ht_insert(&shell->functions, buf, clone, free_heap_ast)) {
+      free_heap_ast(clone);
+      fprintf(stderr, "\nmsh: failed to insert function");
+      return -1;
+    }
+    return 0;
+  }
   case OP_SEQ:
     exec_list(cmd_buf, node->left, shell, subshell, subshell_job, flow);
     return exec_list(cmd_buf, node->right, shell, subshell, subshell_job, flow);
@@ -1028,7 +1106,6 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
       add_to_env(shell, var_name, expanded_items[i]);
       t_wait_status wait = exec_list(cmd_buf, node->sub_ast_root, shell,
                                      subshell, subshell_job, true);
-
       if (wait == WAIT_INTERRUPTED || wait == WAIT_STOPPED)
         break;
     }

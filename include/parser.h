@@ -2,7 +2,6 @@
 #define PARSER_H
 
 #include "ast.h"
-#include "ast_init.h"
 #include "shell_init.h"
 #include <string.h>
 

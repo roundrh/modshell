@@ -1,4 +1,5 @@
 #include "shell_init.h"
+#include "builtins.h"
 #include "executor.h"
 #include "shell.h"
 #include <sys/sysmacros.h>
@@ -183,6 +184,8 @@ static int push_built_ins(t_shell *shell) {
   if (!insert_builtin(&shell->builtins, "builtin", builtin_builtin))
     return -1;
   if (!insert_builtin(&shell->builtins, "rehash", rehash_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, ":", nop_builtin))
     return -1;
 
   return 0;
@@ -420,6 +423,7 @@ int init_shell_state(t_shell *shell, int script) {
 
   ht_init(&(shell->builtins));
   ht_init(&(shell->aliases));
+  ht_init(&(shell->functions));
 
   init_dll(&(shell->history));
 

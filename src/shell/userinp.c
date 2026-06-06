@@ -79,23 +79,6 @@ static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len,
   return 0;
 }
 
-static void rndr_sgst(size_t cmd_len, size_t cmd_idx, t_dllnode *sgst) {
-  if (!sgst || cmd_idx != cmd_len)
-    return;
-
-  char *s = sgst->strbg + cmd_len;
-  char a[32];
-  snprintf(a, sizeof(a), "\033[s");
-  tty_write(STDOUT_FILENO, a);
-  snprintf(a, sizeof(a), "%s", COLOR_GRAY);
-  tty_write(STDOUT_FILENO, a);
-  tty_write(STDOUT_FILENO, s);
-  snprintf(a, sizeof(a), "%s", COLOR_RESET);
-  tty_write(STDOUT_FILENO, a);
-  snprintf(a, sizeof(a), "\033[u");
-  tty_write(STDOUT_FILENO, a);
-}
-
 static void clr_sgst(size_t cmd_len, size_t cmd_idx, size_t sgst_len) {
   char seq[32] = {0};
   size_t cnt_shift = cmd_len - cmd_idx;
@@ -130,6 +113,8 @@ static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
 
 void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
                 t_dllnode **suggestion) {
+  int rows, cols;
+  get_term_size(&rows, &cols);
 
   size_t slen = 0;
   if (suggestion) {
@@ -139,8 +124,6 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
       clr_sgst(cmd_len, cmd_idx, slen);
     }
   }
-  int rows, cols;
-  get_term_size(&rows, &cols);
 
   char a[32] = {0};
   if (last_rows_drawn > 0) {
@@ -153,7 +136,19 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   tty_write(STDOUT_FILENO, shell->prompt);
   tty_write(STDOUT_FILENO, cmd);
 
-  size_t total_len = shell->prompt_len + cmd_len;
+  size_t slen_disp = 0;
+  if (suggestion && *suggestion && cmd_len == cmd_idx) {
+    char *s = (*suggestion)->strbg + cmd_len;
+    slen_disp = strlen(s);
+
+    snprintf(a, sizeof(a), "%s", COLOR_GRAY);
+    tty_write(STDOUT_FILENO, a);
+    tty_write(STDOUT_FILENO, s);
+    snprintf(a, sizeof(a), "%s", COLOR_RESET);
+    tty_write(STDOUT_FILENO, a);
+  }
+
+  size_t total_len = shell->prompt_len + cmd_len + slen_disp;
   size_t target_pos = shell->prompt_len + cmd_idx;
 
   size_t current_row = (total_len - 1) / cols;
@@ -161,7 +156,7 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   size_t target_col = target_pos % cols;
 
   if (current_row > target_row) {
-    snprintf(a, sizeof(a), "\033[%zuA", current_row - target_row + 1);
+    snprintf(a, sizeof(a), "\033[%zuA", current_row - target_row);
     tty_write(STDOUT_FILENO, a);
   }
 
@@ -169,13 +164,12 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   if (target_col > 0) {
     snprintf(a, sizeof(a), "\x1b[%zuC", target_col);
     tty_write(STDOUT_FILENO, a);
+  } else if (target_col == 0) {
+    tty_write(STDOUT_FILENO, "\n");
+    target_row++;
   }
 
   last_rows_drawn = target_row;
-
-  if (suggestion && *suggestion) {
-    rndr_sgst(cmd_len, cmd_idx, *suggestion);
-  }
 }
 
 /**
@@ -276,7 +270,7 @@ static size_t printmatches(char **matches, size_t matches_len) {
       if (read(STDIN_FILENO, &ans, 1) < 0) {
         if (errno == EINTR)
           continue;
-        return -1;
+        return 0;
       }
     }
     if (ans == 'n') {
@@ -606,6 +600,8 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
  */
 char *read_user_inp(t_shell *shell) {
 
+  last_rows_drawn = 0;
+
   t_dllnode *ptr = shell->history.head;
   t_dllnode *suggestion_node = NULL;
   size_t tab_rws = 0;
@@ -773,9 +769,6 @@ char *read_user_inp(t_shell *shell) {
 
     if (c == '\n' || c == '\r') {
       redraw_cmd(shell, cmd, cmd_len, cmd_idx, NULL);
-
-      last_rows_drawn = 0;
-
       break;
     }
     if (cmd_len < MAX_COMMAND_LENGTH - 1 && isprint(c)) {
