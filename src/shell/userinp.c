@@ -104,7 +104,7 @@ static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
 
   t_dllnode *h = shell->history.head;
   while (h) {
-    if (strncmp(h->strbg, cmd, strlen(cmd)) == 0)
+    if (strncmp(h->strbg, cmd, cmd_len) == 0)
       return h;
     h = h->next;
   }
@@ -523,7 +523,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
     char r;
     while (read(STDIN_FILENO, &r, 1) < 0) {
       if (errno != EINTR)
-        exit(1);
+        return;
     }
 
     if (r == '\t') {

@@ -270,6 +270,13 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   char *cmd_buf = *cmd_line_buf;
   while (cmd_buf[i] != '\0') {
 
+    if (!in_single_quote && !in_double_quote && cmd_buf[i] == '#') {
+      while (cmd_buf[i] != '\0' && cmd_buf[i] != '\n')
+        i++;
+      if (cmd_buf[i] == '\0')
+        break;
+    }
+
     check_realloc_toks_arr(token_stream, token_count, a);
 
     if (!in_single_quote && !in_double_quote && cmd_buf[i] == '\'') {

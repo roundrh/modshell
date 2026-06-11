@@ -62,5 +62,14 @@ The 3 builds are: all, dev, prod.
 - Basic redirections `<`, `>`, `>>`
 - Aliases
 - Functions (Doesnt support local vars or $1 push yet - $1 taken from shell startup when calling a script: ./script.sh $1 $2 .. $n)
+## TODO
+Ranked by priority:
+  - Add script error printing
+  - Add arbitrary redirections
+  - Add switch/case
+  - Add until loop
+  - Add function local positional parameters
+  - Fix weird error paths (exit calls on ENOMEM must be an error return not exit)
+  - Change some strdup calls in userinp.c to use arena
 ## License
 MIT

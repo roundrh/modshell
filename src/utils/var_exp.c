@@ -1419,7 +1419,7 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
     }
   }
 
-  size_t buf_cap = 65536;
+  size_t buf_cap = 256;
   char *buf = arena_alloc(a, buf_cap);
   if (!buf)
     return err_fatal;

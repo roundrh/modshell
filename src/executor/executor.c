@@ -35,18 +35,14 @@ int exec_script(t_shell *shell, const char *path) {
   }
 
   char *line = NULL;
-  size_t lc = 0;
+  size_t lc = 1;
   size_t cap = 0;
   char *total_buf = NULL;
-  if (getline(&line, &cap, script) != -1) {
-    if (strncmp(line, "#!", 2) != 0)
-      total_buf = append_script_line(total_buf, line, &shell->arena);
-  }
   while (getline(&line, &cap, script) != -1) {
     char *p = line;
-    while (*p && isspace((unsigned char)*p))
+    while (*p && isspace(*p))
       p++;
-
+    lc++;
     if (*p == '#' || *p == '\0')
       continue;
 
@@ -54,12 +50,10 @@ int exec_script(t_shell *shell, const char *path) {
 
     if (parse_and_execute(&total_buf, shell, &shell->token_stream, true) == 0) {
       total_buf = NULL;
-      shell->last_exit_status = 0;
       arena_reset(&shell->arena);
     } else {
       fprintf(stderr, "line %zu: missing terminator", lc);
     }
-    lc++;
   }
   if (total_buf != NULL) {
     fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
@@ -507,9 +501,11 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
 
   t_ht_node *fn_node = ht_find(&shell->functions, argv[0]);
   if (fn_node && job->position == P_FOREGROUND) {
-    shell->last_exit_status =
-        exec_list(NULL, fn_node->value, shell, is_subshell, job, flow);
-    return 0;
+    int status = exec_list(NULL, fn_node->value, shell, is_subshell, job, flow);
+    if (status)
+      shell->last_exit_status = status;
+
+    return status;
   } else if (fn_node && job->position == P_BACKGROUND) {
     return exec_bg_fun(shell, node, job, is_pipeline_child, is_subshell,
                        pipeline, fn_node, argv);
@@ -542,7 +538,6 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
     arena_rollback(&shell->arena, p, off);
 
   fflush(stdout);
-  fflush(stdin);
   fflush(stderr);
   return 0;
 }
@@ -921,7 +916,7 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
 
     if (job_status == WAIT_ERROR) {
       perror("687: failed wait for fg");
-      exit_builtin(NULL, shell, NULL);
+      exit(1);
     }
 
   } else if (shell->job_control_flag && job->pgid != -1) {
