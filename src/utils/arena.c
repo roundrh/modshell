@@ -5,7 +5,7 @@ static t_region *region_create(size_t cap) {
   t_region *r = malloc(s);
   if (!r) {
     perror("malloc");
-    exit(12);
+    return NULL;
   }
 
   r->next = NULL;
@@ -61,6 +61,10 @@ void *arena_alloc(t_arena *a, size_t s) {
   if (!a->curr || a->curr->off + s > a->curr->cap) {
     size_t nc = (s > REGION_DEF_CAP) ? s : REGION_DEF_CAP;
     t_region *nr = region_create(nc);
+    if (!nr) {
+      perror("region_create");
+      return NULL;
+    }
 
     if (!a->head)
       a->head = nr;

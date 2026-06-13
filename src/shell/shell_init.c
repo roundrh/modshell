@@ -58,6 +58,7 @@ static void load_rc(t_shell *shell) {
       int fd = open(rc_path, O_CREAT | O_WRONLY | O_EXCL, 0644);
       if (fd != -1) {
         dprintf(fd, "# msh config file\n\n");
+        dprintf(fd, "export FUNCNEST=10\n\n");
         dprintf(fd, "# aliases\n");
         dprintf(fd, "alias l='ls -lAh'\n");
         dprintf(fd, "alias ls='ls --color=tty'\n");

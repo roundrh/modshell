@@ -51,7 +51,8 @@
 
 /* Forward declaration of parse_and_execute top level function */
 int parse_and_execute(char **cmd_buf, t_shell *shell,
-                      t_token_stream *token_stream, bool script);
+                      t_token_stream *token_stream, bool script,
+                      t_err_code *last_err);
 
 /**
  * @typedef enum e_err_type

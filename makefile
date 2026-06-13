@@ -12,6 +12,7 @@ INC_FLAGS   := -I$(INC_DIR)
 
 NAME        := msh
 NAME_DEV    := msh_dev
+NAME_DEBUG  := msh_debug
 NAME_PROD   := msh_prod
 
 SRCS        := $(shell find $(SRC_DIR) -name "*.c")
@@ -19,10 +20,12 @@ SRCS        := $(shell find $(SRC_DIR) -name "*.c")
 OBJS        := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/all/%.o)
 OBJS_DEV    := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/dev/%.o)
 OBJS_PROD   := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/prod/%.o)
+OBJS_DEBUG  := $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/debug/%.o)
 
 all: $(NAME)
 dev: $(NAME_DEV)
 prod: $(NAME_PROD)
+debug: $(NAME_DEBUG)
 
 #all
 $(NAME): $(OBJS)
@@ -36,6 +39,10 @@ $(NAME_DEV): $(OBJS_DEV)
 $(NAME_PROD): $(OBJS_PROD)
 	$(CC) $(BASE_FLAGS) $(OPT_ONLY_FLAGS) -O3 $(OBJS_PROD) -o $(NAME_PROD)
 
+#debug
+$(NAME_DEBUG): $(OBJS_DEBUG)
+	$(CC) $(BASE_FLAGS) -g -O0 -DDEBUG $(OBJS_DEBUG) -o $(NAME_DEBUG)
+
 $(OBJ_DIR)/all/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(INC_FLAGS) $(BASE_FLAGS) $(OPT_ONLY_FLAGS) -fsanitize=address -fsanitize=undefined -O2 -g -c $< -o $@
@@ -43,6 +50,10 @@ $(OBJ_DIR)/all/%.o: $(SRC_DIR)/%.c
 $(OBJ_DIR)/dev/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(INC_FLAGS) $(BASE_FLAGS) -g -O0 -c $< -o $@
+
+$(OBJ_DIR)/debug/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(INC_FLAGS) $(BASE_FLAGS) -g -O0 -c -DDEBUG $< -o $@
 
 $(OBJ_DIR)/prod/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
@@ -59,4 +70,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all dev prod clean fclean re
+.PHONY: all dev prod debug clean fclean re

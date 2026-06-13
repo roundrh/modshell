@@ -49,7 +49,8 @@ typedef enum e_wait_status {
 
 int exec_script(t_shell *shell, const char *path);
 int parse_and_execute(char **cmd_buf, t_shell *shell,
-                      t_token_stream *token_stream, bool script);
+                      t_token_stream *token_stream, bool script,
+                      t_err_code *last_err);
 
 int reap_sigchld_jobs(t_shell *shell);
 

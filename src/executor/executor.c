@@ -26,6 +26,104 @@ static char *append_script_line(char *old_buf, const char *new_line,
   return new_buf;
 }
 
+static void print_err(t_err_code last_err, size_t lc, bool is_script) {
+
+  const char *msg;
+  switch (last_err) {
+  case ERR_ALIAS_DEPTH:
+    msg = "alias expansion exceeded maximum depth";
+    break;
+  case ERR_UNBALANCED_QUOTES:
+    msg = "unbalanced quotes";
+    break;
+  case ERR_UNBALANCED_PARENS:
+    if (!is_script)
+      msg = "unbalanced parentheses";
+    else
+      return;
+    break;
+  case ERR_UNBALANCED_BRACES:
+    if (!is_script)
+      msg = "unbalanced braces";
+    else
+      return;
+    break;
+  case ERR_UNBALANCED_TOKEN:
+    if (!is_script)
+      msg = "missing terminator";
+    else
+      return;
+    break;
+  case ERR_REDIR_MAX:
+    msg = "too many redirections";
+    break;
+  case ERR_REDIR_FILENAME:
+    msg = "missing filename for redirection";
+    break;
+  case ERR_MISSING_FI:
+    if (!is_script)
+      msg = "missing 'fi'";
+    else
+      return;
+    break;
+  case ERR_MISSING_THEN:
+    if (!is_script)
+      msg = "missing 'then'";
+    else
+      return;
+    break;
+  case ERR_MISSING_DO:
+    if (!is_script)
+      msg = "missing 'do'";
+    else
+      return;
+    break;
+  case ERR_MISSING_DONE:
+    if (!is_script)
+      msg = "missing 'done'";
+    else
+      return;
+    break;
+  case ERR_MISSING_FOR_VAR:
+    msg = "missing loop variable in 'for'";
+    break;
+  case ERR_MISSING_IN:
+    if (!is_script)
+      msg = "missing 'in' in 'for'";
+    else
+      return;
+    break;
+  case ERR_EMPTY_LOOP:
+    msg = "empty loop body";
+    break;
+  case ERR_MALFORMED_FUN:
+    msg = "malformed function definition";
+    break;
+  case ERR_NEAR_PIPE:
+    msg = "syntax error near unexpected token '|'";
+    break;
+
+  case ERR_NEAR_AND:
+    msg = "syntax error near unexpected token '&&'";
+    break;
+
+  case ERR_NEAR_OR:
+    msg = "syntax error near unexpected token '||'";
+    break;
+  case ERR_ALLOC:
+    msg = "memory allocation failure";
+    break;
+  default:
+    msg = "unknown parse error";
+    break;
+  }
+
+  if (is_script)
+    fprintf(stderr, "msh: %zu: %s\n", lc, msg);
+  else
+    fprintf(stderr, "msh: %s\n", msg);
+}
+
 int exec_script(t_shell *shell, const char *path) {
   FILE *script = fopen(path, "r");
   if (!script) {
@@ -48,11 +146,14 @@ int exec_script(t_shell *shell, const char *path) {
 
     total_buf = append_script_line(total_buf, line, &shell->arena);
 
-    if (parse_and_execute(&total_buf, shell, &shell->token_stream, true) == 0) {
+    t_err_code last_err;
+    if (parse_and_execute(&total_buf, shell, &shell->token_stream, true,
+                          &last_err) == 0) {
       total_buf = NULL;
       arena_reset(&shell->arena);
     } else {
-      fprintf(stderr, "line %zu: missing terminator", lc);
+      print_err(last_err, lc, true);
+      last_err = 0;
     }
   }
   if (total_buf != NULL) {
@@ -286,8 +387,6 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
 
   if (pid == 0) {
 
-    init_ch_sigtable(&(shell->shell_sigtable));
-
     if (!subshell) {
       if (setpgid(0, job->pgid) < 0) {
         if (errno != EPERM && errno != EACCES && errno != ESRCH) {
@@ -297,9 +396,13 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
       }
     }
 
+    shell->job_control_flag = 0;
+    init_ch_sigtable(&(shell->shell_sigtable));
+
     exec_list(NULL, (t_ast_n *)fn->value, shell, subshell, job, false);
     while (waitpid(-job->pgid, NULL, 0) > 0)
       ;
+
     _exit(shell->last_exit_status);
   } else if (shell->job_control_flag) {
 
@@ -500,16 +603,43 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job,
   job->command = strdup(argv[0]);
 
   t_ht_node *fn_node = ht_find(&shell->functions, argv[0]);
-  if (fn_node && job->position == P_FOREGROUND) {
-    int status = exec_list(NULL, fn_node->value, shell, is_subshell, job, flow);
-    if (status)
-      shell->last_exit_status = status;
 
-    return status;
-  } else if (fn_node && job->position == P_BACKGROUND) {
-    return exec_bg_fun(shell, node, job, is_pipeline_child, is_subshell,
-                       pipeline, fn_node, argv);
+  const char *vn = "FUNCNEST";
+  const char *fun_nest = getenv_local(&shell->env, vn, &shell->arena);
+  int fnestmax = 10;
+  if (fun_nest)
+    fnestmax = atoi(fun_nest);
+
+  static int fnest_d = 0;
+  if (fn_node) {
+    if (fnest_d >= fnestmax) {
+      fprintf(stderr,
+              "msh: maximum nested function calls, increase FUNCNEST "
+              "via export FUNCNEST\nFUNCNEST=%d",
+              fnestmax);
+      return 1;
+    }
+    if (job->position == P_FOREGROUND) {
+      fnest_d++;
+      char **curr_argv = shell->argv;
+      shell->argv = argv;
+      size_t curr_argc = shell->argc;
+      for (shell->argc = 0; argv[shell->argc]; shell->argc++)
+        ;
+      int status =
+          exec_list(NULL, fn_node->value, shell, is_subshell, job, flow);
+      if (status)
+        shell->last_exit_status = status;
+      fnest_d--;
+      shell->argv = curr_argv;
+      shell->argc = curr_argc;
+      return status;
+    } else if (job->position == P_BACKGROUND) {
+      return exec_bg_fun(shell, node, job, is_pipeline_child, is_subshell,
+                         pipeline, fn_node, argv);
+    }
   }
+
   t_ht_node *builtin_imp = ht_find(&shell->builtins, argv[0]);
   if (builtin_imp && strcmp(builtin_imp->key, "exit") != 0)
     shell->exflag = 0;
@@ -660,6 +790,9 @@ static t_ast_n *flatten_ast(t_ast_n *node, t_arena *a) {
     }
   } else {
     t_ast_n *new_node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
+    if (!new_node) {
+      return NULL;
+    }
 
     init_ast_node(new_node);
 
@@ -699,6 +832,9 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
   pid_t last_pid = -1;
 
   t_ast_n *pipeline = flatten_ast(node, &shell->arena);
+  if (!pipeline)
+    return -1;
+
   t_ast_n *head = pipeline;
   int count_cmd = 0;
   while (head) {
@@ -779,7 +915,9 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
           }
         }
 
-        dup2(pipes[i - 1][0], STDIN_FILENO);
+        if (dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
+          perror("dup2");
+        }
         for (int j = 0; j < count_cmd - 1; j++) {
           close(pipes[j][0]);
           close(pipes[j][1]);
@@ -801,8 +939,12 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
           }
         }
 
-        dup2(pipes[i - 1][0], STDIN_FILENO);
-        dup2(pipes[i][1], STDOUT_FILENO);
+        if (dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
+          perror("dup2");
+        }
+        if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
+          perror("dup2");
+        }
         for (int j = 0; j < count_cmd - 1; j++) {
           close(pipes[j][0]);
           close(pipes[j][1]);
@@ -1121,14 +1263,10 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
  *
  */
 int parse_and_execute(char **cmd_buf, t_shell *shell,
-                      t_token_stream *token_stream, bool script) {
-  int s_fd = -1;
-  if (script) {
-    s_fd = dup(STDERR_FILENO);
-    int n_fd = open("/dev/null", O_WRONLY);
-    dup2(n_fd, STDERR_FILENO);
-    close(n_fd);
-  }
+                      t_token_stream *token_stream, bool script,
+                      t_err_code *last_err) {
+
+  *last_err = -1;
 
   init_token_stream(token_stream, &shell->arena);
   t_hashtable *aliases = &(shell->aliases);
@@ -1138,7 +1276,10 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   }
 
   t_ast_n *root;
-  if ((root = build_ast(&(shell->ast), token_stream, &shell->arena)) == NULL) {
+  if ((root = build_ast(&(shell->ast), token_stream, &shell->arena,
+                        last_err)) == NULL) {
+    if (!script)
+      print_err(*last_err, 0, script);
     return -1;
   }
 
@@ -1168,11 +1309,6 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   }
   restore_io(shell);
   shell->ast.root = NULL;
-
-  if (script) {
-    dup2(s_fd, STDERR_FILENO);
-    close(s_fd);
-  }
 
   sigint_flag = 0;
   sigtstp_flag = 0;

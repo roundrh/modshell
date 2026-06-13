@@ -2,6 +2,7 @@
 #include "builtins.h"
 #include "hashtable.h"
 #include "lexer.h"
+#include "shell.h"
 #include <stdlib.h>
 
 static const t_exp_map g_jump_table[] = {
@@ -754,7 +755,8 @@ t_err_type expand_subshell(t_shell *shell, char **buf, size_t *buf_cap,
     dup2(fds[1], STDOUT_FILENO);
     close(fds[1]);
 
-    parse_and_execute(&cmd_line, shell, &ts, false);
+    t_err_code last_err;
+    parse_and_execute(&cmd_line, shell, &ts, false, &last_err);
     fflush(stdout);
     _exit(shell->last_exit_status);
   }

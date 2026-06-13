@@ -99,6 +99,16 @@ int main(int argc, char **argv) {
     /* treat signals as dfl */
     init_ch_sigtable(&shell_state.shell_sigtable);
     shell_state.job_control_flag = 0;
+
+    if (argc > 2) {
+      if (strcmp(argv[1], "-c") == 0) {
+        t_err_code last_err;
+        parse_and_execute(&(argv[2]), &shell_state, &shell_state.token_stream,
+                          script, &last_err);
+        exit(shell_state.last_exit_status);
+      }
+    }
+
     if (exec_script(&shell_state, argv[1]) == -1) {
       exit(1);
     }
@@ -162,8 +172,9 @@ int main(int argc, char **argv) {
     if (shell_state.is_interactive)
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
 
+    t_err_code last_err;
     parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream,
-                      false);
+                      false, &last_err);
     arena_reset(&shell_state.arena);
   }
 

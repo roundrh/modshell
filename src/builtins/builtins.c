@@ -910,7 +910,9 @@ int source_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     arena_get_mark(&shell->arena, &p_mark, &off_mark);
 
     total_buf = append_script_line(total_buf, line, &shell->arena);
-    if (parse_and_execute(&total_buf, shell, &shell->token_stream, true) == 0) {
+    t_err_code last_err;
+    if (parse_and_execute(&total_buf, shell, &shell->token_stream, true,
+                          &last_err) == 0) {
       total_buf = NULL;
       arena_rollback(&shell->arena, p_mark, off_mark);
     }

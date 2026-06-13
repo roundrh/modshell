@@ -2,8 +2,10 @@
 #define PARSER_H
 
 #include "ast.h"
-#include "shell_init.h"
-#include <string.h>
+#include "shell.h"
+#include <unistd.h>
+
+#define FILE_NAME_MAX 255
 
 /**
  * @file parser.h
@@ -26,6 +28,7 @@ typedef enum e_err_script {
  * This function takes the tokenized argv within command struct and builds a
  * left-associative ast to pass to an executor.
  */
-t_ast_n *build_ast(t_ast *ast, t_token_stream *token_stream, t_arena *a);
+t_ast_n *build_ast(t_ast *ast, t_token_stream *token_stream, t_arena *a,
+                   t_err_code *last_err);
 
 #endif // ! PARSER_H
