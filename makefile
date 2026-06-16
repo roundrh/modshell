@@ -66,7 +66,7 @@ clean:
 	rm -rf $(OBJ_DIR)
 
 fclean: clean
-	rm -f $(NAME) $(NAME_DEV) $(NAME_PROD)
+	rm -f $(NAME) $(NAME_DEV) $(NAME_PROD) $(NAME_DEBUG)
 
 re: fclean all
 

@@ -432,10 +432,6 @@ static bool is_op_char(const char *c) {
   }
 }
 static int redir_tok_found(t_token *tok) {
-
-  if (!tok || tok->type == -1)
-    return 0;
-
   if (tok->type == TOKEN_APPEND)
     return 1;
   if (tok->type == TOKEN_HEREDOC)
@@ -446,6 +442,45 @@ static int redir_tok_found(t_token *tok) {
     return 1;
   if (tok->type == TOKEN_HEREDOC_STRIP)
     return 1;
+  if (tok->type == TOKEN_FORCE_OW)
+    return 1;
+  if (tok->type == TOKEN_DUP_IN)
+    return 1;
+  if (tok->type == TOKEN_DUP_OUT)
+    return 1;
+  if (tok->type == TOKEN_READ_WRITE)
+    return 1;
+
+  return 0;
+}
+static int is_digit_token(t_token *t) {
+  for (size_t i = 0; i < t->len; i++) {
+    if (!isdigit((unsigned char)t->start[i]))
+      return 0;
+  }
+  return 1;
+}
+static size_t redir_skip_len(t_token *t, t_token *next, t_token *next2) {
+  char *ws_next = NULL;
+  char *ws_next2 = NULL;
+  if (next)
+    ws_next = next->start;
+  if (next2)
+    ws_next2 = next2->start;
+  if (is_digit_token(t) && next && ws_next && *(ws_next - 1) != ' ' &&
+      redir_tok_found(next) && next2 && ws_next2 && *(ws_next2 - 1) != ' ' &&
+      is_digit_token(next2)) {
+    return 3;
+  }
+
+  if (is_digit_token(t) && next && ws_next && *(ws_next - 1) != ' ' &&
+      redir_tok_found(next)) {
+    return 3;
+  }
+
+  if (redir_tok_found(t)) {
+    return 2;
+  }
 
   return 0;
 }
@@ -1409,8 +1444,11 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
   init_token_stream(&vs, a);
 
   for (size_t i = 0; i < segment_len; i++) {
-    if (redir_tok_found(&orig_tokens[i])) {
-      i++;
+    size_t hop_len = redir_skip_len(
+        &orig_tokens[i], i + 1 < segment_len ? &orig_tokens[i + 1] : NULL,
+        i + 2 < segment_len ? &orig_tokens[i + 2] : NULL);
+    if (hop_len) {
+      i += hop_len;
       continue;
     }
 
@@ -1467,6 +1505,12 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
       strip_quotes((*argv)[i]);
     }
   }
+
+#ifdef DEBUG
+  for (size_t i = 0; (*argv)[i]; i++) {
+    printf("argv[%zu]: %s\n", i, (*argv)[i]);
+  }
+#endif
 
   return err_none;
 }

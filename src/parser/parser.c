@@ -79,6 +79,36 @@ static int handle_realloc_io_redir(t_ast_n *node, size_t *capacity,
  * them into a node. start and end defined by function parse_pipeline, which
  * calls recursively.
  */
+
+static void src_target_fd(t_token_stream *ts, size_t *i, int *src_fd,
+                          int *targ_fd, int default_src, bool suffix) {
+
+  if (*i == 0) {
+    *src_fd = default_src;
+  } else {
+    char *src_start = ts->tokens[*i].start - 1;
+
+    while (isdigit(*(src_start - 1)))
+      src_start--;
+    if (*src_start >= '0' && *src_start <= '9') {
+      *src_fd = (int)strtol(src_start, NULL, 10);
+    } else {
+      *src_fd = default_src;
+    }
+  }
+  if (suffix) {
+    char *targ_start = ts->tokens[*i].start + 2;
+
+    if (*targ_start >= '0' && *targ_start <= '9') {
+      *targ_fd = (int)strtol(targ_start, NULL, 10);
+      (*i)++;
+    } else {
+      *targ_fd = 1;
+    }
+  } else {
+    *targ_fd = -1;
+  }
+}
 static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
                              int start, int end, t_arena *a,
                              t_err_code *last_err) {
@@ -92,11 +122,13 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
   size_t capacity = INITIAL_REDIR_LEN;
 
   int count_redir = 0;
-  int filename_prober = 0;
+  bool filename_prober = false;
 
   t_redir_type pending = -1;
+  int pending_src = -1;
+  int pending_targ = -1;
 
-  for (int i = start; i <= end; i++) {
+  for (size_t i = start; i <= end; i++) {
 
     if (count_redir >= capacity - 1) {
       if (handle_realloc_io_redir(node, &capacity, a) == -1) {
@@ -112,7 +144,7 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
 
       char buf[FILE_NAME_MAX];
 
-      filename_prober = 0;
+      filename_prober = false;
       node->io_redir[count_redir] =
           (t_io_redir *)arena_alloc(a, sizeof(t_io_redir));
       node->io_redir[count_redir]->filename = NULL;
@@ -130,31 +162,83 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
       node->io_redir[count_redir]->filename = arena_name;
 
       node->io_redir[count_redir]->io_redir_type = pending;
-      count_redir++;
 
+      node->io_redir[count_redir]->src_fd = pending_src;
+      node->io_redir[count_redir]->target_fd = pending_targ;
+
+      count_redir++;
       continue;
     }
 
     if (token_stream->tokens[i].type == TOKEN_INPUT) {
-      filename_prober = 1;
+      filename_prober = true;
       pending = IO_INPUT;
-      node->redir_bool = 1;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 0, false);
     } else if (token_stream->tokens[i].type == TOKEN_TRUNC) {
-      filename_prober = 1;
+      filename_prober = true;
       pending = IO_TRUNC;
-      node->redir_bool = 1;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 1, false);
     } else if (token_stream->tokens[i].type == TOKEN_HEREDOC) {
-      filename_prober = 1;
+      filename_prober = true;
       pending = IO_HEREDOC;
-      node->redir_bool = 1;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 0, false);
     } else if (token_stream->tokens[i].type == TOKEN_APPEND) {
-      filename_prober = 1;
+      filename_prober = true;
       pending = IO_APPEND;
-      node->redir_bool = 1;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 1, false);
     } else if (token_stream->tokens[i].type == TOKEN_HEREDOC_STRIP) {
-      filename_prober = 1;
+      filename_prober = true;
       pending = IO_HEREDOC_STRIP;
-      node->redir_bool = 1;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 0, false);
+    } else if (token_stream->tokens[i].type == TOKEN_DUP_IN) {
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 0, true);
+
+      node->io_redir[count_redir] =
+          (t_io_redir *)arena_alloc(a, sizeof(t_io_redir));
+
+      node->io_redir[count_redir]->filename = NULL;
+      node->io_redir[count_redir]->io_redir_type = IO_DUP_IN;
+      node->io_redir[count_redir]->src_fd = pending_src;
+      node->io_redir[count_redir]->target_fd = pending_targ;
+
+      count_redir++;
+    } else if (token_stream->tokens[i].type == TOKEN_DUP_OUT) {
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 1, true);
+
+      node->io_redir[count_redir] =
+          (t_io_redir *)arena_alloc(a, sizeof(t_io_redir));
+      node->io_redir[count_redir]->filename = NULL;
+      node->io_redir[count_redir]->io_redir_type = IO_DUP_OUT;
+      node->io_redir[count_redir]->src_fd = pending_src;
+      node->io_redir[count_redir]->target_fd = pending_targ;
+
+      count_redir++;
+    } else if (token_stream->tokens[i].type == TOKEN_FORCE_OW) {
+      filename_prober = true;
+      pending = IO_FORCE_OW;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 1, false);
+    } else if (token_stream->tokens[i].type == TOKEN_READ_WRITE) {
+      filename_prober = true;
+      pending = IO_READ_WRITE;
+      node->redir_bool = true;
+
+      src_target_fd(token_stream, &i, &pending_src, &pending_targ, 0, false);
     }
   }
 
@@ -177,8 +261,8 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
  * @return ast node on success, NULL on fail.
  *
  * Calls scan redirections to parse redirection tokens
- * then parses the remaining command struct argv (start to end) into node argv,
- * returning node.
+ * then parses the remaining command struct argv (start to end) into node
+ * argv, returning node.
  */
 static t_ast_n *parse_command(t_ast *ast, t_token_stream *ts, int start,
                               int end, t_arena *a, t_err_code *last_err) {
@@ -292,7 +376,8 @@ static int next_terminator_index(t_token_stream *ts, int start, int end,
  * @param end end index within command argv
  *
  * @return NULL on fail, root node on success
- * Background terminator & parsed as left tree, ; operator parsed as root node.
+ * Background terminator & parsed as left tree, ; operator parsed as root
+ * node.
  */
 static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
                                   int end, t_arena *a, t_err_code *last_err) {
@@ -454,8 +539,8 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
 }
 
 /**
- * @brief recursively parses pipeline tokens and their respective left and right
- * children
+ * @brief recursively parses pipeline tokens and their respective left and
+ * right children
  * @param ast pointer to ast to parse into
  * @param command pointer to command struct
  * @param start start index of command argv
@@ -962,9 +1047,12 @@ static void print_ast(t_ast_n *node, int depth) {
 
   if (node->io_redir) {
     for (int i = 0; node->io_redir[i]; i++) {
+
       for (int j = 0; j <= depth; j++)
         printf("  ");
+
       printf("↳ REDIR ");
+
       switch (node->io_redir[i]->io_redir_type) {
       case IO_INPUT:
         printf("< ");
@@ -978,11 +1066,36 @@ static void print_ast(t_ast_n *node, int depth) {
       case IO_HEREDOC:
         printf("<< ");
         break;
+      case IO_HEREDOC_STRIP:
+        printf("<<- ");
+        break;
+      case IO_DUP_IN:
+        printf("<& ");
+        break;
+      case IO_DUP_OUT:
+        printf(">& ");
+        break;
+      case IO_FORCE_OW:
+        printf(">| ");
+        break;
+      case IO_READ_WRITE:
+        printf("<> ");
+        break;
       default:
         printf("? ");
         break;
       }
-      printf("'%s'\n", node->io_redir[i]->filename);
+
+      int src = node->io_redir[i]->src_fd;
+      int tgt = node->io_redir[i]->target_fd;
+
+      if (src != -1 || tgt != -1)
+        printf("[%d -> %d] ", src, tgt);
+
+      if (node->io_redir[i]->filename)
+        printf("'%s'\n", node->io_redir[i]->filename);
+      else
+        printf("(no filename)\n");
     }
   }
 

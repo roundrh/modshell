@@ -22,11 +22,13 @@ t_token_type get_token_type(const char *c, size_t *len) {
   if (!c || !len)
     return -1;
 
+  // depricate this - handle semantically
   if (c[0] == '<' && c[1] == '<' && c[2] == '-') {
     *len = 3;
     return TOKEN_HEREDOC_STRIP;
   }
 
+  // lex 2 operators
   if (c[0] == '|' && c[1] == '|') {
     *len = 2;
     return TOKEN_OR;
@@ -35,15 +37,32 @@ t_token_type get_token_type(const char *c, size_t *len) {
     *len = 2;
     return TOKEN_AND;
   }
+  if (c[0] == '<' && c[1] == '>') {
+    *len = 2;
+    return TOKEN_READ_WRITE;
+  }
   if (c[0] == '>' && c[1] == '>') {
     *len = 2;
     return TOKEN_APPEND;
+  }
+  if (c[0] == '>' && c[1] == '&') {
+    *len = 2;
+    return TOKEN_DUP_OUT;
+  }
+  if (c[0] == '<' && c[1] == '&') {
+    *len = 2;
+    return TOKEN_DUP_IN;
   }
   if (c[0] == '<' && c[1] == '<') {
     *len = 2;
     return TOKEN_HEREDOC;
   }
+  if (c[0] == '>' && c[1] == '|') {
+    *len = 2;
+    return TOKEN_FORCE_OW;
+  }
 
+  // len 1 operators
   if (c[0] == '|') {
     *len = 1;
     return TOKEN_PIPE;

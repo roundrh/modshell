@@ -736,11 +736,11 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job,
   bool restore_io_flag = 0;
   if (node->redir_bool) {
     if (redirect_io(shell, node) == -1) {
-      fprintf(stderr, "\nErr redir io");
+      fprintf(stderr, "msh: redirect io\n");
       return -1;
     }
     if (!flow)
-      node->redir_bool = 0;
+      node->redir_bool = false;
     restore_io_flag = 1;
   }
 

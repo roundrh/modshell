@@ -55,11 +55,15 @@ typedef enum e_redir_types {
 
   IO_NONE = 0,
 
-  IO_APPEND,  ///< Append Redirection (>>)
-  IO_TRUNC,   ///< Truncate Redirection (>)
-  IO_HEREDOC, ///< Heredoc Redirection (<<)
-  IO_HEREDOC_STRIP,
-  IO_INPUT ///< Input Redirection (<)
+  IO_APPEND,        ///< Append Redirection (>>)
+  IO_TRUNC,         ///< Truncate Redirection (>)
+  IO_HEREDOC,       ///< Heredoc Redirection (<<)
+  IO_HEREDOC_STRIP, ///< heredoc strip (<<-) will be dprc
+  IO_INPUT,         ///< Input Redirection (<)
+  IO_READ_WRITE,    ///< read write open <>
+  IO_DUP_OUT,       ///< dup out >&
+  IO_DUP_IN,        ///< dup in <&
+  IO_FORCE_OW,      /// force ow >|
 
 } t_redir_type;
 
@@ -71,6 +75,9 @@ typedef enum e_redir_types {
 typedef struct s_io_redir {
   t_redir_type io_redir_type;
   char *filename; // filename is delim in case of heredoc
+
+  int src_fd;
+  int target_fd;
 } t_io_redir;
 
 /**
@@ -86,7 +93,7 @@ typedef struct s_ast_n {
   t_op_type op_type;
 
   t_io_redir **io_redir;
-  int redir_bool;
+  bool redir_bool;
 
   struct s_ast_n *left;
   struct s_ast_n *right;

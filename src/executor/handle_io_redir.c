@@ -2,6 +2,7 @@
 #include "ast.h"
 #include "lexer.h"
 #include "var_exp.h"
+#include <fcntl.h>
 
 /**
  * @file handle_io_redir.c
@@ -18,11 +19,14 @@ static int get_redir_flags(t_ast_n *node, int index) {
 
   int flags = 0;
 
-  if (node->io_redir[index]->io_redir_type == IO_TRUNC) {
+  t_redir_type typ = node->io_redir[index]->io_redir_type;
+  if (typ == IO_TRUNC) {
     flags = O_WRONLY | O_CREAT | O_TRUNC;
-  } else if (node->io_redir[index]->io_redir_type == IO_APPEND) {
+  } else if (typ == IO_APPEND || typ == IO_FORCE_OW) {
     flags = O_WRONLY | O_CREAT | O_APPEND;
-  } else {
+  } else if (typ == IO_READ_WRITE) {
+    flags = O_RDWR | O_CREAT;
+  } else if (typ == IO_INPUT) {
     flags = O_RDONLY;
   }
 
@@ -156,30 +160,40 @@ static int heredoc_io(t_shell *shell, int index, t_ast_n *node) {
  */
 static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
 
-  if (node->io_redir[index]->filename == NULL) {
-    fprintf(stderr, "\nInvalid syntax.");
+  t_io_redir *redir = node->io_redir[index];
+  t_redir_type typ = redir->io_redir_type;
+  int newfd = -1;
+
+  if (typ != IO_DUP_IN && typ != IO_DUP_OUT && redir->filename == NULL) {
+    fprintf(stderr, "\nmsh: invalid redir: filename");
     return -1;
   }
 
-  int newfd = -1;
-  int flags = get_redir_flags(node, index);
+  if (typ == IO_DUP_IN || typ == IO_DUP_OUT) {
+    if (dup2(redir->target_fd, redir->src_fd) == -1) {
+      perror("dup2 fatal error");
+      return -1;
+    }
+    return 0;
+  }
 
-  if (node->io_redir[index]->io_redir_type == IO_HEREDOC ||
-      node->io_redir[index]->io_redir_type == IO_HEREDOC_STRIP) {
+  if (typ == IO_HEREDOC || typ == IO_HEREDOC_STRIP) {
     newfd = heredoc_io(shell, index, node);
+    if (newfd == -1)
+      return -1;
   } else {
-    newfd = open(node->io_redir[index]->filename, flags, 0644);
+    int flags = get_redir_flags(node, index);
+    newfd = open(redir->filename, flags, 0644);
     if (newfd == -1) {
       perror("fatal open err");
       return -1;
     }
   }
 
-  if (node->io_redir[index]->io_redir_type == IO_TRUNC ||
-      node->io_redir[index]->io_redir_type == IO_APPEND) {
-    dup2(newfd, STDOUT_FILENO);
-  } else {
-    dup2(newfd, STDIN_FILENO);
+  if (dup2(newfd, redir->src_fd) == -1) {
+    perror("dup2 fatal error");
+    close(newfd);
+    return -1;
   }
 
   close(newfd);
