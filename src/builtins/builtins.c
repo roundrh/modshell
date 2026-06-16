@@ -399,53 +399,6 @@ int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
 int nop_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
 
-int stty_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
-  (void)node;
-
-  if (!isatty(shell->tty_fd)) {
-    fprintf(stderr, "stty: not a tty\n");
-    return -1;
-  }
-
-  struct termios t;
-  if (tcgetattr(shell->tty_fd, &t) == -1) {
-    perror("stty");
-    return -1;
-  }
-
-  if (argv[1] == NULL) {
-    if (t.c_lflag & TOSTOP)
-      printf("tostop\n");
-    else
-      printf("-tostop\n");
-
-    return 0;
-  }
-
-  for (int i = 1; argv[i]; i++) {
-
-    if (strcmp(argv[i], "tostop") == 0) {
-      t.c_lflag |= TOSTOP;
-    } else if (strcmp(argv[i], "-tostop") == 0) {
-      t.c_lflag &= ~TOSTOP;
-    } else {
-      fprintf(stderr, "stty: unkown option: %s\n", argv[i]);
-      return -1;
-    }
-  }
-
-  shell->term_ctrl.ogl_term_settings = t;
-
-  if (tcsetattr(shell->tty_fd, TCSANOW, &shell->term_ctrl.ogl_term_settings) ==
-      -1) {
-    perror("stty");
-    return -1;
-  }
-
-  return 0;
-}
-
 int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   if (argv[1] == NULL)
     return 0;
@@ -461,6 +414,24 @@ int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
 int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
 int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 1; }
+
+int set_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (argv[1] == NULL) {
+    printf("msh: set: expected arguments");
+    return -1;
+  }
+
+  if (strcmp(argv[1], "-m") == 0) {
+    shell->job_control_flag = 1;
+  } else if (strcmp(argv[1], "+m") == 0) {
+    shell->job_control_flag = 0;
+  } else {
+    printf("msh: set: unknown option");
+    return -1;
+  }
+
+  return 0;
+}
 
 int test_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   int argc = 0;

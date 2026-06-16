@@ -117,9 +117,6 @@ static int push_built_ins(t_shell *shell) {
   if (!insert_builtin(&shell->builtins, "exit", exit_builtin))
     return -1;
 
-  if (!insert_builtin(&shell->builtins, "stty", stty_builtin))
-    return -1;
-
   if (!insert_builtin(&shell->builtins, "cd", cd_builtin))
     return -1;
 
@@ -187,6 +184,8 @@ static int push_built_ins(t_shell *shell) {
   if (!insert_builtin(&shell->builtins, "rehash", rehash_builtin))
     return -1;
   if (!insert_builtin(&shell->builtins, ":", nop_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "set", set_builtin))
     return -1;
 
   return 0;

@@ -49,7 +49,6 @@ int unalias_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int exit_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int env_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int history_builtin(t_ast_n *node, t_shell *shell, char **argv);
-int stty_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int kill_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int v_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int test_builtin(t_ast_n *node, t_shell *shell, char **argv);
@@ -63,5 +62,6 @@ int pwd_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int read_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int rehash_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int nop_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int set_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H

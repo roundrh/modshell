@@ -131,18 +131,16 @@ int main(int argc, char **argv) {
         tcsetpgrp(shell_state.tty_fd, shell_state.pgid);
       }
 
-      reset_terminal_mode(&shell_state);
+      unrawify(&shell_state);
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[?25h", 6, cmd_line_buf);
-      if (write(shell_state.tty_fd, "\033[5 q", 5) == -1)
-        perror("write");
+      HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[5 q", 5, cmd_line_buf);
 
       get_shell_prompt(&shell_state);
       printf("\n%s", shell_state.prompt);
-      fflush(stdout);
 
       rawify(&shell_state);
       cmd_line_buf = read_user_inp(&shell_state);
-      reset_terminal_mode(&shell_state);
+      unrawify(&shell_state);
     } else {
       size_t cap = 0;
       ssize_t n = getline(&cmd_line_buf, &cap, stdin);

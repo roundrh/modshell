@@ -21,7 +21,6 @@ static char *append_script_line(char *old_buf, const char *new_line,
   size_t new_len = strlen(new_line);
 
   char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len);
-
   memcpy(new_buf + old_len, new_line, new_len + 1);
   return new_buf;
 }
@@ -114,6 +113,8 @@ static void print_err(t_err_code last_err, size_t lc, bool is_script) {
     msg = "memory allocation failure";
     break;
   default:
+    if (last_err == -1)
+      return;
     msg = "unknown parse error";
     break;
   }
@@ -185,9 +186,7 @@ static void wait_for_job_slot(t_shell *shell) {
 
   sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
-
 void del_completed_jobs(t_shell *shell) {
-
   for (int i = 0; i < shell->job_table_cap; i++) {
     t_job *j = shell->job_table[i];
     if (!j)
@@ -302,7 +301,7 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       job->position = P_BACKGROUND;
 
       job->last_exit_status = WSTOPSIG(status);
-      if (pid == job->last_pid || job->process_count == 1) {
+      if (pid == job->last_pid) {
         shell->last_exit_status = job->last_exit_status;
       }
 
@@ -316,13 +315,13 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       process->running = 0;
 
       int sig = WTERMSIG(status);
-
       process->exit_status = 128 + sig;
-      job->last_exit_status = 128 + sig;
-      if (ret_status != WAIT_INTERRUPTED)
+      if (pid == job->last_pid) {
+        job->last_exit_status = 128 + sig;
         shell->last_exit_status = job->last_exit_status;
-
-      ret_status = WAIT_INTERRUPTED;
+      }
+      if (pid == job->last_pid)
+        ret_status = WAIT_INTERRUPTED;
     }
   }
 
@@ -428,11 +427,6 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
 static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
                              int is_pipeline_child, int subshell,
                              t_ast_n *pipeline, char **argv) {
-  if (!argv) {
-    perror("argv prop err");
-    return -1;
-  }
-
   if (is_pipeline_child) {
     char **env = flatten_env(&shell->env, &shell->arena);
     if (strchr(argv[0], '/')) {
@@ -971,13 +965,13 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
         cleanup_job_struct(job);
         return -1;
       }
-      if (i == count_cmd - 1)
+      if (i == count_cmd - 1) {
         job->last_pid = pid;
+        last_pid = pid;
+      }
 
       add_process_to_job(job, process);
     }
-
-    last_pid = pid;
 
     exec = exec->right;
     i++;
@@ -987,6 +981,7 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job, int subshell,
     close(pipes[j][0]);
     close(pipes[j][1]);
   }
+
   return last_pid;
 }
 
@@ -1024,21 +1019,21 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
   }
 
   pid_t lpid = exec_command(node, shell, job, 0, subshell, NULL, flow);
-
   if (shell->job_control_flag && job->position == P_FOREGROUND) {
 
     t_pgrp tc;
     if ((tc = handle_tcsetpgrp(shell, job->pgid)) == PGRP_FATAL) {
       perror("720: tcsetpgrp reclaim");
-      exit_builtin(node, shell, NULL);
+      exit(1);
     }
 
     t_wait_status job_status = wait_for_foreground_job(job, shell);
 
     if ((tc = handle_tcsetpgrp(shell, shell->pgid)) == PGRP_FATAL) {
       perror("720: tcsetpgrp reclaim");
-      exit_builtin(node, shell, NULL);
+      exit(1);
     }
+    tcgetattr(shell->tty_fd, &shell->term_ctrl.curr_settings);
 
     if (job_status == WAIT_FINISHED) {
       del_job(shell, job->job_id, flow);
@@ -1047,7 +1042,6 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
           shell->next_job_id--;
       }
       return WAIT_FINISHED;
-
     } else if (job_status == WAIT_STOPPED) {
       print_job_info(job);
       return WAIT_STOPPED;

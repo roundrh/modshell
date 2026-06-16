@@ -21,10 +21,8 @@ int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
   while ((write_ret = write(fd, buf, len)) == -1) {
     if (errno == EINTR)
       continue;
-
     if (errno == EPIPE)
       return -1;
-
     perror("readinp fail: write fatal");
     return -1;
   }
@@ -219,7 +217,7 @@ static int force_realloc_buf(char **buf, size_t *buf_cap, size_t *new_buf_cap,
  */
 static int temp_switch_termios(t_shell *shell) {
 
-  struct termios temptio = shell->term_ctrl.new_term_settings;
+  struct termios temptio = shell->term_ctrl.curr_settings;
 
   temptio.c_cc[VMIN] = 0;
   temptio.c_cc[VTIME] = 1;
@@ -533,7 +531,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
     } else if (r == '\r' || r == '\n') {
       append_completion(cmd, cmd_len, cmd_idx, c.matches[s], c.prefix_len);
       freematches(c.matches);
-      tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.new_term_settings);
+      tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.curr_settings);
       return;
     } else if (r == '\x1b') {
       temp_switch_termios(shell);
@@ -542,7 +540,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
         if (errno != EINTR)
           exit(1);
       }
-      tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.new_term_settings);
+      tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.curr_settings);
 
       if (seq[0] == '[') {
         switch (seq[1]) {
@@ -586,7 +584,7 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
 
   printf("\033[J");
   freematches(c.matches);
-  tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.new_term_settings);
+  tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.curr_settings);
 }
 
 /**
@@ -674,8 +672,8 @@ char *read_user_inp(t_shell *shell) {
         }
       }
 
-      if (tcsetattr(STDIN_FILENO, TCSANOW,
-                    &(shell->term_ctrl.new_term_settings)) == -1) {
+      if (tcsetattr(STDIN_FILENO, TCSANOW, &(shell->term_ctrl.curr_settings)) ==
+          -1) {
         perror("fail to reset terminal");
         return cmd;
       }
