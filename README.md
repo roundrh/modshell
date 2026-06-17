@@ -48,28 +48,32 @@ The 3 builds are: all, dev, prod.
 - POSIX Parameter Expansion:
   - Braces: `${#VAR}`, `${VAR#, ##, %, %%}`, `${VAR:-, :+, :=, :?`, `${VAR}`
   - Variable: `$VAR`
-  - Subshell: `$(command)`
+  - Subshell: `$(command)` (backtick syntax not supported)
   - Arithmetic: `$((...))`
   - Positional Parameters `$#`, `$*`, `$@`, `$n`
   -  Basic Expansions: `$$`, `$?`
 - Bash brace ranges and options expansions:
   - `{a..z}`, `{1..n}`, `prefix{a,{b,c}}suffix`
-- IFS Splitting, with variable IFS options
+- IFS Splitting, with variable IFS options via export IFS and IFS='' parsing
 - Full Job Control: `fg`, `bg`, `jobs`
 - AST Parser to allow for complex commands
 - Hashtables for aliases, builtins, environment entries, and PATH caching
 - Heredoc with expansions and leading tab removal
-- Basic redirections `<`, `>`, `>>`
+- All / Arbitrary redirections (- to close fd not handled yet)
 - Aliases
-- Functions (Doesnt support local vars or $1 push yet - $1 taken from shell startup when calling a script: ./script.sh $1 $2 .. $n)
+- Functions (No local - pushes $0..n correctly within functions virtual stack)
+- msh -c "command"
+- Terminal state capture for stty/reset/... commands
 ## TODO
 Ranked by priority:
-  - Add script error printing
-  - Add arbitrary redirections
   - Add switch/case
   - Add until loop
-  - Add function local positional parameters
+  - Add function local variables via local
   - Fix weird error paths (exit calls on ENOMEM must be an error return not exit)
-  - Change some strdup calls in userinp.c to use arena
+  - Encapsulate execution context in t_exec_ctx struct for readability (executor.c)
+  - Change strdup calls in get_matches / tab_dbl pager pipeline to use arena (userinp.c)
+  - Finish set builtin to control shell
+  - Add PS1 and completion for multi-line input
+  - Add multi-line prompts
 ## License
 MIT
