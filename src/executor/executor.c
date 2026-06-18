@@ -1226,7 +1226,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell, int subshell,
              node->for_var->start);
 
     for (int i = 0; expanded_items[i] != NULL; i++) {
-
+      // see OP_WHILE
       if (is_job_table_full(shell)) {
         wait_for_job_slot(shell);
       }

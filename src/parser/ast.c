@@ -67,6 +67,8 @@ static t_io_redir **clone_io_redir(t_io_redir **src) {
 
     dst[i]->io_redir_type = src[i]->io_redir_type;
     dst[i]->filename = src[i]->filename ? strdup(src[i]->filename) : NULL;
+    dst[i]->src_fd = src[i]->src_fd;
+    dst[i]->target_fd = src[i]->target_fd;
   }
   dst[n] = NULL;
   return dst;

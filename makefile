@@ -57,7 +57,7 @@ $(OBJ_DIR)/debug/%.o: $(SRC_DIR)/%.c
 
 $(OBJ_DIR)/prod/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(INC_FLAGS) $(BASE_FLAGS) $(OPT_ONLY_FLAGS) -O3 -c $< -o $@
+	$(CC) $(INC_FLAGS) $(BASE_FLAGS) $(OPT_ONLY_FLAGS) -O3 -march=native -c $< -o $@
 
 
 #============ cleanup ===========#
