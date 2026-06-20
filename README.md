@@ -68,7 +68,6 @@ The 3 builds are: all, dev, prod.
 Ranked by priority:
   - Add switch/case
   - Add until loop
-  - Add function local variables via local
   - Fix weird error paths (exit calls on ENOMEM must be an error return not exit)
   - Encapsulate execution context in t_exec_ctx struct for readability (executor.c)
   - Change strdup calls in get_matches / tab_dbl pager pipeline to use arena (userinp.c)

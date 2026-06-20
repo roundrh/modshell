@@ -110,7 +110,8 @@ typedef struct s_exp_map {
 
 void strip_quotes(char *str);
 
-int add_to_env(t_shell *shell, const char *var, const char *val);
+int add_to_env(t_shell *shell, const char *var, const char *val, bool local,
+               size_t depth);
 char *getenv_local(t_hashtable *env, const char *var_name, t_arena *a);
 const char *getenv_local_ref(t_hashtable *env, const char *var_name);
 char **flatten_env(t_hashtable *env, t_arena *a);

@@ -40,15 +40,6 @@
  * @note called by driver.
  */
 
-typedef struct s_exec_ctx {
-  bool is_subshell;
-  t_job *subshell_job;
-  const t_ast_n *pipeline;
-  bool flow;
-  bool script;
-  int fnest_d;
-} t_exec_ctx;
-
 typedef enum e_wait_status {
   WAIT_FINISHED = 0,
   WAIT_STOPPED = 1,

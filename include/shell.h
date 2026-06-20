@@ -48,8 +48,17 @@ typedef struct s_env_entry {
   char *val;
   long long vint;
   unsigned char flags;
-  size_t local_depth;
+  int local_depth;
 } t_env_entry;
+
+typedef struct s_exec_ctx {
+  bool is_subshell;
+  t_job *subshell_job;
+  const t_ast_n *pipeline;
+  bool flow;
+  bool script;
+  int fnest_d;
+} t_exec_ctx;
 
 /**
  * @typedef shell_s t_shell
@@ -103,6 +112,7 @@ typedef struct shell_s {
   int rows;
   int cols;
 
+  t_exec_ctx exec_ctx;
 } t_shell;
 
 #endif // ! SHELL_H

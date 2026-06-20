@@ -118,7 +118,8 @@ void print_env(t_hashtable *env, bool exported_only, bool local_only) {
   }
 }
 
-int add_to_env(t_shell *shell, const char *var, const char *val) {
+int add_to_env(t_shell *shell, const char *var, const char *val, bool local,
+               size_t depth) {
   if (!var || !val)
     return -1;
 
@@ -153,6 +154,10 @@ int add_to_env(t_shell *shell, const char *var, const char *val) {
   } else {
     entry->flags &= ~ENV_HAS_VINT;
   }
+  if (local)
+    entry->flags |= ENV_LOCAL;
+
+  entry->local_depth = depth;
 
   return 0;
 }
@@ -914,7 +919,7 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
     if (val && *val) {
       append_to_buf(buf, buf_cap, k, val, a);
     } else {
-      add_to_env(shell, var_name, word);
+      add_to_env(shell, var_name, word, false, 0);
       append_to_buf(buf, buf_cap, k, word, a);
     }
     break;

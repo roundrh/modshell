@@ -312,7 +312,7 @@ void init_env(t_shell *shell) {
     char *eq = strchr(entry, '=');
     if (eq) {
       *eq = '\0';
-      add_to_env(shell, entry, eq + 1);
+      add_to_env(shell, entry, eq + 1, false, 0);
       t_ht_node *hh = ht_find(&shell->env, entry);
       t_env_entry *a = (t_env_entry *)hh->value;
       a->flags |= ENV_EXPORTED;
@@ -435,10 +435,16 @@ int init_shell_state(t_shell *shell, int script) {
   }
   init_bins(shell);
 
+  shell->exec_ctx.is_subshell = false;
+  shell->exec_ctx.subshell_job = NULL;
+  shell->exec_ctx.pipeline = NULL;
+  shell->exec_ctx.flow = false;
+  shell->exec_ctx.fnest_d = 0;
+  shell->exec_ctx.script = script;
+
   if (!script) {
     load_rc(shell);
     load_history(shell);
   }
-
   return 0;
 }

@@ -196,9 +196,9 @@ int cd_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   if (getcwd(new_path, sizeof(new_path)) != NULL) {
     if (old_path[0] != '\0') {
-      add_to_env(shell, "OLDPWD", old_path);
+      add_to_env(shell, "OLDPWD", old_path, false, 0);
     }
-    add_to_env(shell, "PWD", new_path);
+    add_to_env(shell, "PWD", new_path, false, 0);
   }
 
   return 0;
@@ -226,7 +226,8 @@ int local_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   memcpy(var_name, argv[1], name_len);
   var_name[name_len] = '\0';
 
-  if (add_to_env(shell, var_name, var_val) == -1) {
+  size_t depth = shell->exec_ctx.fnest_d;
+  if (add_to_env(shell, var_name, var_val, true, depth) == -1) {
     fprintf(stderr, "msh: local: failed to add or change variable\n");
     return -1;
   }
@@ -635,7 +636,7 @@ int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     memcpy(var_val, eq_ptr + 1, val_len + 1);
   }
 
-  if (add_to_env(shell, var_name, var_val) == -1) {
+  if (add_to_env(shell, var_name, var_val, false, 0) == -1) {
     return -1;
   }
 
@@ -684,7 +685,7 @@ int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   var_name[name_len] = '\0';
   memcpy(var_val, eq_ptr + 1, val_len + 1);
 
-  add_to_env(shell, var_name, var_val);
+  add_to_env(shell, var_name, var_val, false, 0);
 
   check_rehash(shell, var_name);
   return 0;
@@ -961,7 +962,7 @@ int read_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     input_line[n - 1] = '\0';
   }
 
-  if (add_to_env(shell, argv[1], input_line) == -1) {
+  if (add_to_env(shell, argv[1], input_line, false, 0) == -1) {
     fprintf(stderr, "msh: read: failed to set variable %s\n", argv[1]);
     free(input_line);
     return -1;
