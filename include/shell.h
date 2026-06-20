@@ -19,6 +19,7 @@
 #define ENV_EXPORTED (1 << 0)
 #define ENV_READONLY (1 << 1)
 #define ENV_HAS_VINT (1 << 2)
+#define ENV_LOCAL (1 << 3)
 
 typedef enum e_err_code {
   ERR_ALIAS_DEPTH = 2,
@@ -47,6 +48,7 @@ typedef struct s_env_entry {
   char *val;
   long long vint;
   unsigned char flags;
+  size_t local_depth;
 } t_env_entry;
 
 /**

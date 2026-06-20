@@ -114,57 +114,41 @@ static void load_history(t_shell *shell) {
  * unforkable commands in a pipe.
  */
 static int push_built_ins(t_shell *shell) {
+
   if (!insert_builtin(&shell->builtins, "exit", exit_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "cd", cd_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "alias", alias_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "unalias", unalias_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "fg", fg_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "bg", bg_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "jobs", jobs_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "kill", kill_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "export", export_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "unset", unset_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "clear", clear_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "env", env_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "history", history_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "v", v_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "[", test_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "true", true_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "false", false_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "echo", echo_builtin))
     return -1;
   if (!insert_builtin(&shell->builtins, "exec", exec_builtin))
@@ -173,10 +157,8 @@ static int push_built_ins(t_shell *shell) {
     return -1;
   if (!insert_builtin(&shell->builtins, ".", source_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "read", read_builtin))
     return -1;
-
   if (!insert_builtin(&shell->builtins, "pwd", pwd_builtin))
     return -1;
   if (!insert_builtin(&shell->builtins, "builtin", builtin_builtin))
@@ -186,6 +168,8 @@ static int push_built_ins(t_shell *shell) {
   if (!insert_builtin(&shell->builtins, ":", nop_builtin))
     return -1;
   if (!insert_builtin(&shell->builtins, "set", set_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "local", local_builtin))
     return -1;
 
   return 0;

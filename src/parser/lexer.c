@@ -370,7 +370,11 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
         token_stream->tokens[token_count].start = &cmd_buf[i];
         token_stream->tokens[token_count].len = op_len;
         token_stream->tokens[token_count].type = type;
-        token_stream->tokens[token_count].trailing_delim = cmd_buf[i + op_len];
+
+        // clone_heap_ast needs space delims to correctly copy
+        if (isspace(cmd_buf[i + op_len]))
+          token_stream->tokens[token_count].trailing_delim =
+              cmd_buf[i + op_len];
 
         token_count++;
         tokenized = false;

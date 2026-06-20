@@ -3,8 +3,7 @@ SRC_DIR     := src
 INC_DIR     := include
 OBJ_DIR     := obj
 
-BASE_FLAGS  := -Wall -Werror -Wshadow -Wpedantic -Wwrite-strings -Wformat \
-               -fstack-protector-strong
+BASE_FLAGS  := -Wall -Werror -Wshadow -Wpedantic -Wwrite-strings -Wformat -fstack-protector-strong
 
 OPT_ONLY_FLAGS := -D_FORTIFY_SOURCE=2
 

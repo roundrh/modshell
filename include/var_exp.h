@@ -115,7 +115,7 @@ char *getenv_local(t_hashtable *env, const char *var_name, t_arena *a);
 const char *getenv_local_ref(t_hashtable *env, const char *var_name);
 char **flatten_env(t_hashtable *env, t_arena *a);
 void remove_from_env(t_hashtable *env, const char *var_name);
-void print_env(t_hashtable *env, bool exported);
+void print_env(t_hashtable *env, bool exported_only, bool local_only);
 
 /**
  * @brief expands "$?" last shell exit status

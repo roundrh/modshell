@@ -1,5 +1,8 @@
 #include "sigtable_init.h"
 
+#include <errno.h>
+#include <unistd.h>
+
 /**
  * @file sigtable_init.c
  * @brief Implementations of functions to initialize t_shell_sigtable struct in
@@ -18,6 +21,12 @@ void sigchld_handler(int sig) {
 void sigint_handler(int sig) {
   (void)sig;
   sigint_flag = 1;
+  while (write(STDOUT_FILENO, "\n", 1) < 0) {
+    if (errno == EINTR)
+      continue;
+    else
+      break;
+  }
 }
 void sigtstp_handler(int sig) {
   (void)sig;

@@ -204,6 +204,36 @@ int cd_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
+int local_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node; // shut up compiler
+
+  if (argv[1] == NULL) {
+    print_env(&shell->env, false, true);
+    return 0;
+  }
+
+  char *eq = strchr(argv[1], '=');
+  if (!eq || eq == argv[1]) {
+    fprintf(stderr, "msh: local: invalid syntax\n");
+    return -1;
+  }
+
+  size_t name_len = eq - argv[1];
+
+  char *var_name = arena_alloc(&shell->arena, name_len + 1);
+  char *var_val = eq + 1;
+
+  memcpy(var_name, argv[1], name_len);
+  var_name[name_len] = '\0';
+
+  if (add_to_env(shell, var_name, var_val) == -1) {
+    fprintf(stderr, "msh: local: failed to add or change variable\n");
+    return -1;
+  }
+
+  return 0;
+}
+
 int jobs_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   if (shell->job_control_flag == -1) {
@@ -642,6 +672,10 @@ int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     return -1;
 
   size_t name_len = eq_ptr - argv[0];
+  if (name_len == 0) {
+    fprintf(stderr, "msh: empty name\n");
+    return 1;
+  }
   size_t val_len = strlen(eq_ptr + 1);
   char *var_name = arena_alloc(&shell->arena, name_len + 1);
   char *var_val = arena_alloc(&shell->arena, val_len + 1);
@@ -783,14 +817,7 @@ exit:
  * @return Always returns 0
  */
 int env_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
-  char **env = flatten_env(&shell->env, &shell->arena);
-  int i = 0;
-  while (env[i] != NULL) {
-    printf("\n%s", env[i]);
-    i++;
-  }
-
+  print_env(&shell->env, true, true);
   return 0;
 }
 

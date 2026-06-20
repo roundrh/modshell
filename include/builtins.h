@@ -63,5 +63,6 @@ int read_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int rehash_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int nop_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int set_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int local_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H

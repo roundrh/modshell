@@ -99,20 +99,19 @@ void remove_from_env(t_hashtable *env, const char *var_name) {
   ht_delete(env, var_name, free_env_entry);
 }
 
-void print_env(t_hashtable *env, bool exported_only) {
+void print_env(t_hashtable *env, bool exported_only, bool local_only) {
   if (!env)
     return;
 
   for (size_t i = 0; i < HT_DEFSIZE; i++) {
     t_ht_node *node = env->buckets[i];
-
     while (node) {
       t_env_entry *entry = (t_env_entry *)node->value;
-
       if (entry && entry->val) {
-        if (!exported_only || (entry->flags & ENV_EXPORTED)) {
+        if (exported_only && entry->flags & ENV_EXPORTED)
           printf("%s=%s\n", node->key, entry->val);
-        }
+        if (local_only && !(entry->flags & ENV_EXPORTED))
+          printf("%s=%s\n", node->key, entry->val);
       }
       node = node->next;
     }
@@ -125,17 +124,22 @@ int add_to_env(t_shell *shell, const char *var, const char *val) {
 
   t_ht_node *existing = ht_find(&shell->env, var);
   t_env_entry *entry;
+  t_env_entry *existing_entry = NULL;
+  if (existing)
+    existing_entry = (t_env_entry *)existing->value;
 
-  if (existing) {
+  if (existing && !(existing_entry->flags & ENV_READONLY)) {
     entry = (t_env_entry *)existing->value;
     free(entry->val);
-  } else {
+  } else if (!existing) {
     entry = (t_env_entry *)malloc(sizeof(t_env_entry));
     if (!entry)
       return -1;
     entry->name = strdup(var);
     entry->flags = 0;
     ht_insert(&shell->env, var, entry, free_env_entry);
+  } else {
+    return -1;
   }
 
   entry->val = strdup(val);
