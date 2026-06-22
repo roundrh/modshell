@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #define BUF_GROWTH_FACTOR 2
+#define FDS_P_DEF_SIZE 8
 
 /**
  * @file handle_io_redir.h

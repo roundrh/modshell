@@ -409,6 +409,10 @@ int init_shell_state(t_shell *shell, int script) {
   ht_init(&(shell->aliases));
   ht_init(&(shell->functions));
 
+  // shell->fd_prevs = NULL;
+  // shell->fd_prevs_cap = 0;
+  // shell->fd_prevs_len = 0;
+
   init_dll(&(shell->history));
 
   if (shell->is_interactive)
@@ -417,9 +421,6 @@ int init_shell_state(t_shell *shell, int script) {
   shell->last_exit_status = 0;
 
   strcpy(shell->sh_name, "msh");
-
-  shell->std_fd_backup[0] = -1;
-  shell->std_fd_backup[1] = -1;
 
   if (push_built_ins(shell) == -1) {
     perror("failure to initialize");

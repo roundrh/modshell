@@ -640,6 +640,7 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job) {
       int status = exec_list(NULL, fn_node->value, shell);
       if (status)
         shell->last_exit_status = status;
+
       // this can never be == 0 here but guarding to be safe as to not delete
       // every not exported variable
       if (ctx->fnest_d > 0)
@@ -1333,7 +1334,6 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
     sigaction(SIGINT, &osa_int, NULL);
     sigaction(SIGTSTP, &osa_tstp, NULL);
   }
-  restore_io(shell);
   shell->ast.root = NULL;
 
   sigint_flag = 0;

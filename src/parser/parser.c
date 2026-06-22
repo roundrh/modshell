@@ -85,19 +85,30 @@ static void src_target_fd(t_token_stream *ts, size_t *i, int *src_fd,
 
   if (*i == 0) {
     *src_fd = default_src;
+    goto skip;
   } else {
-    char *src_start = ts->tokens[*i].start - 1;
+    char *src_end = ts->tokens[*i].start - 1;
+    if (!isdigit(*src_end)) {
+      *src_fd = default_src;
+      goto skip;
+    }
+    char *src_start = src_end;
 
     while (isdigit(*(src_start - 1)))
       src_start--;
-    if (*src_start >= '0' && *src_start <= '9') {
+    if (isdigit(*src_start)) {
       *src_fd = (int)strtol(src_start, NULL, 10);
     } else {
       *src_fd = default_src;
     }
   }
+skip:
   if (suffix) {
     char *targ_start = ts->tokens[*i].start + 2;
+    if (!isdigit(*targ_start)) {
+      *targ_fd = 1;
+      return;
+    }
 
     if (*targ_start >= '0' && *targ_start <= '9') {
       *targ_fd = (int)strtol(targ_start, NULL, 10);

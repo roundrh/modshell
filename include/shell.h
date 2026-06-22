@@ -60,6 +60,11 @@ typedef struct s_exec_ctx {
   int fnest_d;
 } t_exec_ctx;
 
+typedef struct s_fd_backup {
+  int src_fd;
+  int saved_fd;
+} t_fd_backup;
+
 /**
  * @typedef shell_s t_shell
  * @brief struct encapsulates all information about the shell.
@@ -104,7 +109,10 @@ typedef struct shell_s {
   int next_job_id;
 
   int tty_fd;
-  int std_fd_backup[2];
+
+  t_fd_backup *fd_prevs;
+  size_t fd_prevs_len;
+  size_t fd_prevs_cap;
 
   unsigned int is_interactive : 1;
   unsigned int job_control_flag : 1;

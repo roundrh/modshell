@@ -1457,7 +1457,7 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
         &orig_tokens[i], i + 1 < segment_len ? &orig_tokens[i + 1] : NULL,
         i + 2 < segment_len ? &orig_tokens[i + 2] : NULL);
     if (hop_len) {
-      i += hop_len;
+      i += hop_len - 1;
       continue;
     }
 

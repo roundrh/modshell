@@ -1,13 +1,55 @@
 #include "handle_io_redir.h"
 #include "ast.h"
 #include "lexer.h"
+#include "shell.h"
 #include "var_exp.h"
 #include <fcntl.h>
+#include <unistd.h>
 
 /**
  * @file handle_io_redir.c
  * @brief implementation of handling of I/O redirection
  */
+
+static int check_realloc_fdsp(t_shell *shell) {
+  if (shell->fd_prevs_len < shell->fd_prevs_cap)
+    return 0;
+
+  size_t ncap = shell->fd_prevs_cap * BUF_GROWTH_FACTOR;
+  if (ncap < shell->fd_prevs_cap)
+    return -1;
+  t_fd_backup *nptr =
+      (t_fd_backup *)arena_alloc(&shell->arena, ncap * sizeof(t_fd_backup));
+  if (!nptr)
+    return -1;
+
+  memcpy(nptr, shell->fd_prevs, shell->fd_prevs_cap * sizeof(t_fd_backup));
+
+  shell->fd_prevs = nptr;
+  shell->fd_prevs_cap = ncap;
+
+  return 0;
+}
+
+static int save_fd(int src_fd, t_shell *shell) {
+  for (size_t i = 0; i < shell->fd_prevs_len; ++i) {
+    if (shell->fd_prevs[i].src_fd == src_fd)
+      return 0;
+  }
+
+  int dup_fd = dup(src_fd);
+  if (dup_fd == -1)
+    return -1;
+
+  if (check_realloc_fdsp(shell) == -1)
+    return -1;
+
+  shell->fd_prevs[shell->fd_prevs_len].src_fd = src_fd;
+  shell->fd_prevs[shell->fd_prevs_len].saved_fd = dup_fd;
+  shell->fd_prevs_len++;
+
+  return 0;
+}
 
 /**
  * @brief helper function to get redirection flags based on redirection type.
@@ -170,6 +212,8 @@ static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
   }
 
   if (typ == IO_DUP_IN || typ == IO_DUP_OUT) {
+    if (save_fd(redir->src_fd, shell) == -1)
+      return -1;
     if (dup2(redir->target_fd, redir->src_fd) == -1) {
       perror("dup2 fatal error");
       return -1;
@@ -185,13 +229,18 @@ static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
     int flags = get_redir_flags(node, index);
     newfd = open(redir->filename, flags, 0644);
     if (newfd == -1) {
-      perror("fatal open err");
+      perror("open");
       return -1;
     }
   }
 
+  if (save_fd(redir->src_fd, shell) == -1) {
+    close(newfd);
+    return -1;
+  }
+
   if (dup2(newfd, redir->src_fd) == -1) {
-    perror("dup2 fatal error");
+    perror("dup2");
     close(newfd);
     return -1;
   }
@@ -209,14 +258,14 @@ static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
  *
  */
 int redirect_io(t_shell *shell, t_ast_n *node) {
+  shell->fd_prevs = (t_fd_backup *)arena_alloc(
+      &shell->arena, FDS_P_DEF_SIZE * sizeof(t_fd_backup));
+  shell->fd_prevs_cap = FDS_P_DEF_SIZE;
+  shell->fd_prevs_len = 0;
 
-  if (node->io_redir == NULL) {
-    return -1;
-  }
-
-  if (shell->std_fd_backup[0] == -1) {
-    shell->std_fd_backup[0] = dup(STDIN_FILENO);
-    shell->std_fd_backup[1] = dup(STDOUT_FILENO);
+  for (size_t i = 0; i < shell->fd_prevs_cap; i++) {
+    shell->fd_prevs[i].src_fd = -1;
+    shell->fd_prevs[i].saved_fd = -1;
   }
 
   for (int i = 0; node->io_redir[i] != NULL; i++) {
@@ -237,17 +286,19 @@ int redirect_io(t_shell *shell, t_ast_n *node) {
  *
  */
 int restore_io(t_shell *shell) {
+  for (size_t i = 0; i < shell->fd_prevs_len; ++i) {
+    int src = shell->fd_prevs[i].src_fd;
+    int saved = shell->fd_prevs[i].saved_fd;
 
-  if (shell->std_fd_backup[0] != -1) {
+    if (dup2(saved, src) == -1)
+      perror("dup2 restore");
 
-    dup2(shell->std_fd_backup[0], STDIN_FILENO);
-    dup2(shell->std_fd_backup[1], STDOUT_FILENO);
-
-    close(shell->std_fd_backup[0]);
-    close(shell->std_fd_backup[1]);
-
-    shell->std_fd_backup[0] = -1;
-    shell->std_fd_backup[1] = -1;
+    close(saved);
   }
+
+  shell->fd_prevs = NULL;
+  shell->fd_prevs_len = 0;
+  shell->fd_prevs_cap = 0;
+
   return 0;
 }
