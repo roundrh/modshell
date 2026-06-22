@@ -409,10 +409,6 @@ int init_shell_state(t_shell *shell, int script) {
   ht_init(&(shell->aliases));
   ht_init(&(shell->functions));
 
-  // shell->fd_prevs = NULL;
-  // shell->fd_prevs_cap = 0;
-  // shell->fd_prevs_len = 0;
-
   init_dll(&(shell->history));
 
   if (shell->is_interactive)
@@ -446,6 +442,10 @@ int init_shell_state(t_shell *shell, int script) {
   if (!script) {
     load_rc(shell);
     load_history(shell);
+    shell->script_fstream = NULL;
   }
+
+  shell->is_interactive = !script;
+
   return 0;
 }

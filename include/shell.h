@@ -120,6 +120,8 @@ typedef struct shell_s {
   int rows;
   int cols;
 
+  FILE *script_fstream;
+
   t_exec_ctx exec_ctx;
 } t_shell;
 

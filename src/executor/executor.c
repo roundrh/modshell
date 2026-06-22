@@ -143,6 +143,7 @@ static void print_err(t_err_code last_err, size_t lc, bool is_script) {
 
 int exec_script(t_shell *shell, const char *path) {
   FILE *script = fopen(path, "r");
+  shell->script_fstream = script;
   if (!script) {
     errno = EINVAL;
     perror("msh: open");
@@ -179,6 +180,7 @@ int exec_script(t_shell *shell, const char *path) {
 
   free(line);
   fclose(script);
+  shell->script_fstream = NULL;
   return 0;
 }
 

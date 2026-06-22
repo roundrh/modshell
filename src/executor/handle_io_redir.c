@@ -88,6 +88,8 @@ static int get_redir_flags(t_ast_n *node, int index) {
  * within this function.
  */
 static int heredoc_io(t_shell *shell, int index, t_ast_n *node) {
+
+  bool script = !shell->is_interactive;
   char template[] = "/tmp/heredocXXXXXX";
 
   int heredoc_fd = mkstemp(template);
@@ -121,10 +123,13 @@ static int heredoc_io(t_shell *shell, int index, t_ast_n *node) {
   if (!exp)
     strip_quotes(dcpy);
 
-  while (1) {
-    fprintf(stderr, "HEREDOC>> ");
+  FILE *input = script ? shell->script_fstream : stdin;
 
-    char_read = getline(&line, &line_cap, stdin);
+  while (1) {
+    if (!script)
+      fprintf(stderr, "HEREDOC>> ");
+
+    char_read = getline(&line, &line_cap, input);
     if (char_read == -1)
       break;
 
