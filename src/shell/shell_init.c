@@ -445,6 +445,10 @@ int init_shell_state(t_shell *shell, int script) {
     shell->script_fstream = NULL;
   }
 
+  shell->pending_hds = NULL;
+  shell->pending_hds_cap = 0;
+  shell->pending_hds_len = 0;
+
   shell->is_interactive = !script;
 
   return 0;

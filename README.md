@@ -1,9 +1,9 @@
 # modshell (msh)
 A semi-minimal POSIX-lite shell written in C.
 
-Developed over a few months as a side-project to learn systems programming and as a first project.
-Focuses on educational depth with a simple and readable codebase to make
-complex features (Arenas, TUI implementations (without any external libraries), job control, ASTs, parameter expansions) seem more intuitive.
+Made to try implementing a concept where a shell contains quality-of-life interactive features similar to those found in oh-my-zsh, while keeping a size around the size of dash, and optimized code to be within some percentage of dash's general performance in script execution. The shell does this by focusing on POSIX features while avoiding non-POSIX features and remaining minimal where it will add unneeded overhead.
+
+This project is still incomplete, TODO is below.
 
 ## Build
 
@@ -52,16 +52,17 @@ The 3 builds are: all, dev, prod.
   - Arithmetic: `$((...))`
   - Positional Parameters `$#`, `$*`, `$@`, `$n`
   -  Basic Expansions: `$$`, `$?`
-- Bash brace ranges and options expansions:
+- Brace ranges and options expansions:
   - `{a..z}`, `{1..n}`, `prefix{a,{b,c}}suffix`
-- IFS Splitting, with variable IFS options via export IFS and IFS='' parsing
+- IFS Splitting, with variable IFS options via export IFS or IFS='' parsing
 - Full Job Control: `fg`, `bg`, `jobs`
-- AST Parser to allow for complex commands
+- AST recursive descent parser
+- Supports all defined posix command types
 - Hashtables for aliases, builtins, environment entries, and PATH caching
-- Heredoc with expansions and leading tab removal
+- Heredoc with expansions and leading tab removal, including pipe heredoc, script heredocs, etc.
 - All / Arbitrary redirections (- to close fd not handled yet)
 - Aliases
-- Functions (No local - pushes $0..n correctly within functions virtual stack)
+- Functions
 - msh -c "command"
 - Terminal state capture for stty/reset/... commands
 ## TODO

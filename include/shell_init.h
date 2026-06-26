@@ -36,6 +36,7 @@
  */
 #define FILE_NAME_MAX 255
 
+#define INIT_HD_CAP 8
 /**
  * @def INITIAL_PID_ARR_LENGTH
  * @brief limit for the initial length of the array of PIDs

@@ -1,8 +1,16 @@
 #include "executor.h"
 #include "ast.h"
+#include "handle_io_redir.h"
 #include "hashtable.h"
 #include "jobs.h"
+#include "lexer.h"
 #include "shell.h"
+#include "shell_init.h"
+
+/**
+ * @file executor.c
+ * @brief implementation of functions used to execute AST.
+ */
 
 typedef enum e_pgrp {
 
@@ -10,11 +18,6 @@ typedef enum e_pgrp {
   PGRP_FATAL = -1,
   PGRP_INVAL = -2
 } t_pgrp;
-
-/**
- * @file executor.c
- * @brief implementation of functions used to execute AST.
- */
 
 static void del_local_depth(size_t depth, t_hashtable *env) {
   for (size_t i = 0; i < env->count; ++i) {
@@ -141,6 +144,119 @@ static void print_err(t_err_code last_err, size_t lc, bool is_script) {
     fprintf(stderr, "msh: %s\n", msg);
 }
 
+static int realloc_delims(t_arena *arena, char ***delims, size_t *delims_cap,
+                          size_t delims_cnt) {
+  if (delims_cnt < *delims_cap - 1)
+    return 0;
+
+  if (*delims_cap > SIZE_MAX / BUF_GROWTH_FACTOR) {
+    fprintf(stderr, "msh: overflow delims cap\n");
+    return -1;
+  }
+
+  size_t ncap = *delims_cap * BUF_GROWTH_FACTOR;
+
+  char **ndelims = arena_realloc(arena, *delims, sizeof(char *) * ncap,
+                                 sizeof(char *) * (*delims_cap));
+
+  if (!ndelims)
+    return -1;
+
+  *delims = ndelims;
+  *delims_cap = ncap;
+
+  return 0;
+}
+
+static int realloc_strip(t_arena *arena, bool **strip, size_t *strip_cap,
+                         size_t strip_cnt) {
+  if (strip_cnt < *strip_cap - 1)
+    return 0;
+
+  if (*strip_cap > SIZE_MAX / BUF_GROWTH_FACTOR) {
+    fprintf(stderr, "msh: overflow strip cap\n");
+    return -1;
+  }
+
+  size_t ncap = *strip_cap * BUF_GROWTH_FACTOR;
+
+  bool *nstrip = arena_realloc(arena, *strip, sizeof(bool) * ncap,
+                               sizeof(bool) * (*strip_cap));
+
+  if (!nstrip)
+    return -1;
+
+  *strip = nstrip;
+  *strip_cap = ncap;
+
+  return 0;
+}
+
+static int cnt_hd_delims(t_shell *shell, char *line, char ***delims,
+                         size_t *delims_cap, bool **strip, size_t *strip_cap) {
+  if (!line)
+    return 0;
+
+  t_token_stream vs;
+  init_token_stream(&vs, &shell->arena);
+
+  lex_command_line(&line, &vs, NULL, 0, &shell->arena, false);
+
+  int cnt = 0;
+  size_t delims_i = 0;
+
+  for (size_t i = 0; i < vs.tokens_arr_len; i++) {
+    if (vs.tokens[i].type != TOKEN_HEREDOC &&
+        vs.tokens[i].type != TOKEN_HEREDOC_STRIP)
+      continue;
+
+    cnt++;
+
+    if (vs.tokens[i + 1].start == NULL) {
+      fprintf(stderr, "msh: missing heredoc delim\n");
+      return -1;
+    }
+
+    if (realloc_delims(&shell->arena, delims, delims_cap, delims_i) == -1)
+      return -1;
+
+    if (realloc_strip(&shell->arena, strip, strip_cap, delims_i) == -1)
+      return -1;
+
+    size_t len = vs.tokens[i + 1].len;
+
+    char *d = arena_alloc(&shell->arena, len + 1);
+    if (!d)
+      return -1;
+
+    memcpy(d, vs.tokens[i + 1].start, len);
+    d[len] = '\0';
+
+    (*delims)[delims_i] = d;
+    (*strip)[delims_i] = vs.tokens[i].type == TOKEN_HEREDOC_STRIP;
+
+    delims_i++;
+  }
+
+  return cnt;
+}
+
+int parse_pending_hd(t_shell *shell, int cnt_hd, char **delims, bool *strip) {
+  for (int i = 0; i < cnt_hd; i++) {
+    char *body = NULL;
+
+    if (read_hd_body(delims[i], strip[i], shell, &body) == -1)
+      return -1;
+
+    if (check_realloc_pending_hds(shell) == -1)
+      return -1;
+
+    shell->pending_hds[shell->pending_hds_len++] = body;
+  }
+
+  return 0;
+}
+
 int exec_script(t_shell *shell, const char *path) {
   FILE *script = fopen(path, "r");
   shell->script_fstream = script;
@@ -154,6 +270,17 @@ int exec_script(t_shell *shell, const char *path) {
   size_t lc = 0;
   size_t cap = 0;
   char *total_buf = NULL;
+  t_err_code last_err;
+
+  char **delims = arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(char *));
+  size_t delims_cap = INIT_HD_CAP;
+  bool *strip = arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(bool));
+  size_t strip_cap = INIT_HD_CAP;
+
+  shell->pending_hds = (char **)arena_alloc(&shell->arena, INIT_HD_CAP);
+  shell->pending_hds_cap = INIT_HD_CAP;
+  shell->pending_hds_len = 0;
+
   while (getline(&line, &cap, script) != -1) {
     char *p = line;
     while (*p && isspace(*p))
@@ -162,19 +289,28 @@ int exec_script(t_shell *shell, const char *path) {
     if (*p == '#' || *p == '\0')
       continue;
 
+    int cnt =
+        cnt_hd_delims(shell, line, &delims, &delims_cap, &strip, &strip_cap);
+    if (cnt > 0) {
+      parse_pending_hd(shell, cnt, delims, strip);
+    }
+
     total_buf = append_script_line(total_buf, line, &shell->arena);
 
-    t_err_code last_err;
     if (parse_and_execute(&total_buf, shell, &shell->token_stream, true,
                           &last_err) == 0) {
       total_buf = NULL;
       arena_reset(&shell->arena);
+
+      shell->pending_hds = (char **)arena_alloc(&shell->arena, INIT_HD_CAP);
+      shell->pending_hds_cap = INIT_HD_CAP;
+      shell->pending_hds_len = 0;
     } else {
       print_err(last_err, lc, true);
-      last_err = 0;
     }
   }
   if (total_buf != NULL) {
+    print_err(last_err, lc, false);
     fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
   }
 
@@ -1282,6 +1418,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
     return exec_job(cmd_buf, node, shell);
   }
 }
+
 /**
  * @brief called by driver to build ast and execute the ast via recursive
  * descent.
@@ -1311,6 +1448,18 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
       print_err(*last_err, 0, script);
     return -1;
   }
+
+  if (shell->is_interactive) {
+
+    shell->pending_hds = (char **)arena_alloc(&shell->arena, INIT_HD_CAP);
+    shell->pending_hds_cap = INIT_HD_CAP;
+    shell->pending_hds_len = 0;
+
+    collect_stdin_hds(shell, root);
+  }
+
+  size_t idx = 0;
+  collect_pending_hds(root, &idx, shell);
 
   struct sigaction sa_int, osa_int;
   struct sigaction sa_tstp, osa_tstp;

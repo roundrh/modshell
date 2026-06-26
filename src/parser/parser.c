@@ -174,6 +174,8 @@ static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
 
       node->io_redir[count_redir]->io_redir_type = pending;
 
+      node->io_redir[count_redir]->hd_body = NULL;
+
       node->io_redir[count_redir]->src_fd = pending_src;
       node->io_redir[count_redir]->target_fd = pending_targ;
 

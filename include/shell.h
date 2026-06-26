@@ -9,6 +9,7 @@
 #include "lexer.h"
 #include "sigstruct.h"
 #include "termstruct.h"
+#include <stdint.h>
 
 /**
  * @file shell.h
@@ -121,6 +122,10 @@ typedef struct shell_s {
   int cols;
 
   FILE *script_fstream;
+
+  char **pending_hds;
+  size_t pending_hds_cap;
+  size_t pending_hds_len;
 
   t_exec_ctx exec_ctx;
 } t_shell;

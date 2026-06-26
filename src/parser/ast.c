@@ -69,6 +69,7 @@ static t_io_redir **clone_io_redir(t_io_redir **src) {
     dst[i]->filename = src[i]->filename ? strdup(src[i]->filename) : NULL;
     dst[i]->src_fd = src[i]->src_fd;
     dst[i]->target_fd = src[i]->target_fd;
+    dst[i]->hd_body = src[i]->hd_body ? strdup(src[i]->hd_body) : NULL;
   }
   dst[n] = NULL;
   return dst;
@@ -234,6 +235,7 @@ static void free_io_redir(t_io_redir **redir) {
     return;
   for (size_t i = 0; redir[i]; i++) {
     free(redir[i]->filename);
+    free(redir[i]->hd_body);
     free(redir[i]);
   }
   free(redir);

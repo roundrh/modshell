@@ -88,113 +88,215 @@ static int get_redir_flags(t_ast_n *node, int index) {
  * within this function.
  */
 static int heredoc_io(t_shell *shell, int index, t_ast_n *node) {
-
-  bool script = !shell->is_interactive;
   char template[] = "/tmp/heredocXXXXXX";
-
   int heredoc_fd = mkstemp(template);
   if (heredoc_fd == -1) {
     perror("mkstemp fatal error");
     return -1;
   }
-
   fcntl(heredoc_fd, F_SETFD, FD_CLOEXEC);
   unlink(template);
 
-  bool exp = true;
-  char *delim = node->io_redir[index]->filename;
-
-  if (delim[0] == '\'' || delim[0] == '"')
-    exp = false;
-
-  char *line = NULL;
-  size_t line_cap = 0;
-  ssize_t char_read = 0;
-
-  t_arena hdoc_arena;
-  arena_init(&hdoc_arena);
-
-  char *dcpy = strdup(delim);
-  if (!dcpy) {
-    perror("strdup");
-    return -1;
-  }
-
-  if (!exp)
-    strip_quotes(dcpy);
-
-  FILE *input = script ? shell->script_fstream : stdin;
-
-  while (1) {
-    if (!script)
-      fprintf(stderr, "HEREDOC>> ");
-
-    char_read = getline(&line, &line_cap, input);
-    if (char_read == -1)
-      break;
-
-    if (char_read > 0 && line[char_read - 1] == '\n') {
-      line[char_read - 1] = '\0';
-      char_read--;
-    }
-
-    char *eff = line;
-
-    if (node->io_redir[index]->io_redir_type == IO_HEREDOC_STRIP) {
-      while (*eff && *eff == '\t')
-        eff++;
-    }
-
-    if (strcmp(eff, dcpy) == 0)
-      break;
-
-    arena_reset(&hdoc_arena);
-
-    size_t eff_len = strlen(eff);
-    char *buf = arena_alloc(&hdoc_arena, eff_len + 1);
-    if (!buf)
-      break;
-
-    memcpy(buf, eff, eff_len + 1);
-    char *tb = buf;
-
-    if (exp) {
-      t_token_stream vs;
-      init_token_stream(&vs, &hdoc_arena);
-
-      lex_command_line(&buf, &vs, NULL, 0, &hdoc_arena, 1);
-
-      size_t tbc = eff_len + 1;
-      if (tbc < 128)
-        tbc = 128;
-
-      tb = arena_alloc(&hdoc_arena, tbc);
-
-      make_buf(shell, vs.tokens, vs.tokens_arr_len, &hdoc_arena, &tb, &tbc, 1);
-    }
-
-    if (write(heredoc_fd, tb, strlen(tb)) == -1) {
-      perror("fatal inloop err heredoc");
-      break;
-    }
-
-    if (write(heredoc_fd, "\n", 1) == -1) {
-      perror("fatal inloop err heredoc");
-      break;
+  char *body = node->io_redir[index]->hd_body;
+  if (body) {
+    if (write(heredoc_fd, body, strlen(body)) == -1) {
+      perror("heredoc_io write");
+      close(heredoc_fd);
+      return -1;
     }
   }
-
-  free(line);
-  free(dcpy);
-  arena_free(&hdoc_arena);
 
   if (lseek(heredoc_fd, 0, SEEK_SET) == -1) {
     perror("lseek fatal error");
     close(heredoc_fd);
     return -1;
   }
-
   return heredoc_fd;
+}
+
+int check_realloc_pending_hds(t_shell *shell) {
+  if (shell->pending_hds_len < shell->pending_hds_cap)
+    return 0;
+
+  if (shell->pending_hds_cap > SIZE_MAX / BUF_GROWTH_FACTOR) {
+    fprintf(stderr, "pending hds resize: overflow\n");
+    return -1;
+  }
+
+  size_t ncap = shell->pending_hds_cap * BUF_GROWTH_FACTOR;
+
+  char **nptr =
+      arena_realloc(&shell->arena, shell->pending_hds, sizeof(char *) * ncap,
+                    sizeof(char *) * shell->pending_hds_cap);
+
+  if (!nptr)
+    return -1;
+
+  memset(nptr + shell->pending_hds_cap, 0,
+         sizeof(char *) * (ncap - shell->pending_hds_cap));
+
+  shell->pending_hds = nptr;
+  shell->pending_hds_cap = ncap;
+
+  return 0;
+}
+
+int read_hd_body(const char *delim, bool strip, t_shell *shell, char **out) {
+
+  FILE *stream = shell->is_interactive ? stdin : shell->script_fstream;
+
+  size_t buf_cap = 512;
+  size_t buf_len = 0;
+  char *buf = arena_alloc(&shell->arena, buf_cap);
+  if (!buf)
+    return -1;
+  buf[0] = '\0';
+
+  size_t dlen = strlen(delim);
+  char *dcpy = arena_alloc(&shell->arena, dlen + 1);
+  if (!dcpy) {
+    return -1;
+  }
+
+  memcpy(dcpy, delim, dlen + 1);
+
+  bool exp = true;
+  if (dcpy[0] == '\'' || dcpy[0] == '"')
+    exp = false;
+  if (!exp)
+    strip_quotes(dcpy);
+
+  char *line = NULL;
+  size_t line_cap = 0;
+  ssize_t nr;
+
+  if (shell->is_interactive)
+    fprintf(stderr, "HEREDOC>> ");
+  while ((nr = getline(&line, &line_cap, stream)) != -1) {
+
+    if (nr > 0 && line[nr - 1] == '\n')
+      line[--nr] = '\0';
+
+    char *eff = line;
+    if (strip) {
+      while (*eff == '\t')
+        eff++;
+    }
+    if (strcmp(eff, dcpy) == 0)
+      break;
+
+    size_t eff_len = strlen(eff);
+    char *abuf = arena_alloc(&shell->arena, eff_len + 1);
+    if (!abuf)
+      break;
+    memcpy(abuf, eff, eff_len + 1);
+
+    char *tb = abuf;
+    if (exp) {
+      t_token_stream vs;
+      init_token_stream(&vs, &shell->arena);
+      lex_command_line(&abuf, &vs, NULL, 0, &shell->arena, 1);
+      size_t tbc = eff_len + 1;
+      if (tbc < 128)
+        tbc = 128;
+      tb = arena_alloc(&shell->arena, tbc);
+      make_buf(shell, vs.tokens, vs.tokens_arr_len, &shell->arena, &tb, &tbc,
+               1);
+    }
+
+    size_t tb_len = strlen(tb);
+    size_t needed = buf_len + tb_len + 2;
+    if (needed > buf_cap) {
+      size_t ncap = buf_cap;
+
+      while (ncap < needed)
+        ncap *= 2;
+
+      char *nbuf = arena_realloc(&shell->arena, buf, ncap, buf_cap);
+
+      if (!nbuf) {
+        return -1;
+      }
+
+      buf = nbuf;
+      buf_cap = ncap;
+    }
+    memcpy(buf + buf_len, tb, tb_len);
+    buf_len += tb_len;
+    buf[buf_len++] = '\n';
+    buf[buf_len] = '\0';
+
+    if (shell->is_interactive)
+      fprintf(stderr, "HEREDOC>> ");
+  }
+  free(line);
+  *out = buf;
+  return 0;
+}
+
+static int collect_stdin_hds_node(t_ast_n *r, size_t *idx, t_shell *shell) {
+  if (!r)
+    return 0;
+  if (r->io_redir) {
+    for (size_t i = 0; r->io_redir[i]; i++) {
+      t_io_redir *rd = r->io_redir[i];
+      if (rd->io_redir_type != IO_HEREDOC &&
+          rd->io_redir_type != IO_HEREDOC_STRIP)
+        continue;
+      if (check_realloc_pending_hds(shell) == -1)
+        return -1;
+      char *body = NULL;
+      bool strip = rd->io_redir_type == IO_HEREDOC_STRIP;
+      if (read_hd_body(rd->filename, strip, shell, &body) == -1)
+        return -1;
+      shell->pending_hds[*idx] = body;
+      shell->pending_hds_len++;
+      (*idx)++;
+    }
+  }
+  if (r->sub_ast_root &&
+      collect_stdin_hds_node(r->sub_ast_root, idx, shell) == -1)
+    return -1;
+  if (r->left && collect_stdin_hds_node(r->left, idx, shell) == -1)
+    return -1;
+  if (r->right && collect_stdin_hds_node(r->right, idx, shell) == -1)
+    return -1;
+  return 0;
+}
+
+int collect_stdin_hds(t_shell *shell, t_ast_n *root) {
+  size_t idx = 0;
+  return collect_stdin_hds_node(root, &idx, shell);
+}
+
+static int collect_hd_node(t_io_redir *n_redir, size_t idx, t_shell *shell) {
+  char *body = shell->pending_hds[idx];
+  n_redir->hd_body = body;
+  return 0;
+}
+
+int collect_pending_hds(t_ast_n *r, size_t *idx, t_shell *shell) {
+  if (!r)
+    return 0;
+
+  if (r->io_redir) {
+    for (size_t i = 0; r->io_redir[i]; i++) {
+      if (r->io_redir[i]->io_redir_type == IO_HEREDOC ||
+          r->io_redir[i]->io_redir_type == IO_HEREDOC_STRIP) {
+        collect_hd_node(r->io_redir[i], *idx, shell);
+        (*idx)++;
+      }
+    }
+  }
+
+  if (r->sub_ast_root)
+    collect_pending_hds(r->sub_ast_root, idx, shell);
+  if (r->left)
+    collect_pending_hds(r->left, idx, shell);
+  if (r->right)
+    collect_pending_hds(r->right, idx, shell);
+
+  return 0;
 }
 
 /**

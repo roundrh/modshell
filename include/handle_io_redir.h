@@ -28,6 +28,13 @@
  */
 int redirect_io(t_shell *shell, t_ast_n *node);
 
+int collect_pending_hds(t_ast_n *r, size_t *idx, t_shell *shell);
+
+int check_realloc_pending_hds(t_shell *shell);
+
+int read_hd_body(const char *delim, bool strip, t_shell *shell, char **out);
+
+int collect_stdin_hds(t_shell *shell, t_ast_n *root);
 /**
  * @brief restores standard i/o of process
  * @param shell pointer to shell struct

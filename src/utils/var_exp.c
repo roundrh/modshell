@@ -514,7 +514,11 @@ static void append_to_buf(char **buf, size_t *buf_cap, size_t *k,
 t_err_type expand_args(t_shell *shell, char **buf, size_t *cap, const char **p,
                        size_t *k, t_arena *a) {
   char *val = NULL;
-  if (isdigit(**p)) {
+  if (**p == '#') {
+    char f[12];
+    snprintf(f, sizeof(f), "%d", shell->argc - 1);
+    append_to_buf(buf, cap, k, f, a);
+  } else if (isdigit(**p)) {
     int idx = **p - '0';
     if (idx < shell->argc)
       val = shell->argv[idx];
