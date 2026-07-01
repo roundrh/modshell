@@ -2,9 +2,6 @@
 #define AST_H
 
 #include "lexer.h"
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 /**
  * @file ast.h

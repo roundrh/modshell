@@ -1,5 +1,4 @@
 #include "alias.h"
-#include "hashtable.h"
 
 void free_alias(void *value) {
   t_alias *a = (t_alias *)value;
@@ -14,7 +13,6 @@ t_ht_node *insert_alias(t_hashtable *ht, const char *alias, const char *cmd) {
   a->cmd = strdup(cmd);
   return ht_insert(ht, alias, a, free_alias);
 }
-
 static void print_alias(const char *key, void *value) {
   t_alias *a = (t_alias *)value;
   if (a && a->cmd) {

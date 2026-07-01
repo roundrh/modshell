@@ -70,7 +70,7 @@ extern char **environ;
 
 void refresh_path_bins(t_shell *shell);
 
-void get_shell_prompt(t_shell *shell);
+int get_shell_prompt(t_shell *shell);
 /**
  * @def init_shell_state(t_shell* shell)
  * @param shell pointer to shell struct

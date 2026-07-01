@@ -92,8 +92,10 @@ static void load_history(t_shell *shell) {
   char path[PATH_MAX];
   snprintf(path, PATH_MAX, "%s/.msh_history", home);
   FILE *fp = fopen(path, "r");
-  if (!fp)
+  if (!fp) {
+    fprintf(stderr, "msh: ~/.msh_history not found: file will be created");
     return;
+  }
 
   char *line = NULL;
   size_t len = 0;
@@ -195,8 +197,8 @@ static int replace_home_dir(char **buf) {
   bufbuf[0] = '~';
   bufbuf[1] = '\0';
 
-  char *part = strtok(replacement, "/"); // ""
-  part = strtok(NULL, "/");              // home
+  char *part = strtok(replacement, "/");
+  part = strtok(NULL, "/");
 
   while ((part = strtok(NULL, "/")) != NULL) {
     strcat(bufbuf, "/");
@@ -212,9 +214,11 @@ static int replace_home_dir(char **buf) {
   return 0;
 }
 
-size_t visible_len(const char *s) {
+size_t visible_len(const char *s, int cols) {
   size_t len = 0;
+  size_t col = 0;
   const char *p = s;
+
   while (*p) {
     if (*p == '\033' && *(p + 1) == '[') {
       p += 2;
@@ -222,14 +226,24 @@ size_t visible_len(const char *s) {
         p++;
       if (*p)
         p++;
+    } else if (*p == '\n') {
+      if (cols > 0 && col < (size_t)cols)
+        len += cols - col;
+      col = 0;
+      p++;
     } else {
       len++;
+      col++;
+      if (cols > 0 && col == (size_t)cols)
+        col = 0;
       p++;
     }
   }
+
   return len;
 }
-void get_shell_prompt(t_shell *shell) {
+
+int get_shell_prompt(t_shell *shell) {
 
   if (shell->prompt)
     free(shell->prompt);
@@ -237,13 +251,14 @@ void get_shell_prompt(t_shell *shell) {
   char hostname[256];
   if (gethostname(hostname, sizeof(hostname)) == -1) {
     perror("gethostname");
+    return -1;
   } else {
     hostname[sizeof(hostname) - 1] = '\0';
   }
   char *dir = getcwd(NULL, 0);
   if (!dir) {
     perror("getcwd");
-    exit(1);
+    return -1;
   }
   replace_home_dir(&dir);
   char *user = getenv("USER");
@@ -251,7 +266,7 @@ void get_shell_prompt(t_shell *shell) {
   shell->prompt = (char *)malloc(prompt_cap);
   if (!shell->prompt) {
     perror("malloc");
-    exit(1);
+    return -1;
   }
   (shell->prompt)[0] = '\0';
   snprintf(shell->prompt, prompt_cap,
@@ -259,7 +274,9 @@ void get_shell_prompt(t_shell *shell) {
            user, hostname, dir, shell->sh_name);
   free(dir);
 
-  shell->prompt_len = visible_len(shell->prompt);
+  shell->prompt_len = visible_len(shell->prompt, shell->cols);
+
+  return 0;
 }
 
 static void hash_directory(t_hashtable *bins, char *dir_path) {
@@ -303,22 +320,30 @@ void init_bins(t_shell *shell) {
   refresh_path_bins(shell);
 }
 
-void init_env(t_shell *shell) {
+int init_env(t_shell *shell) {
 
   ht_init(&shell->env);
 
-  for (int i = 0; environ[i]; i++) {
+  for (size_t i = 0; environ[i]; i++) {
     char *entry = strdup(environ[i]);
+    if (!entry) {
+      perror("strdup");
+      return -1;
+    }
     char *eq = strchr(entry, '=');
     if (eq) {
       *eq = '\0';
-      add_to_env(shell, entry, eq + 1, false, 0);
+      if (add_to_env(shell, entry, eq + 1, false, 0) == -1)
+        return -1;
       t_ht_node *hh = ht_find(&shell->env, entry);
       t_env_entry *a = (t_env_entry *)hh->value;
       a->flags |= ENV_EXPORTED;
     }
+
     free(entry);
   }
+
+  return 0;
 }
 
 /**
@@ -337,32 +362,34 @@ int init_shell_state(t_shell *shell, int script) {
   arena_init(&shell->arena);
   get_term_size(&shell->rows, &shell->cols);
 
-  shell->sh_name = (char *)malloc(4);
-  if (!shell->sh_name) {
-    perror("malloc");
-    return -1;
-  }
-
   shell->prompt = NULL;
+
+  shell->sh_name = (char *)malloc(4);
+  strcpy(shell->sh_name, "msh");
 
   shell->next_job_id = 1;
   shell->job_control_flag = 1;
 
   if (init_pa_sigtable(&(shell->shell_sigtable)) == -1) {
-    perror("shell sigtable init");
+    fprintf(stderr, "msh: failed sigaction: job control disabled\n");
     shell->job_control_flag = 0;
   }
+
   shell->fg_job = NULL;
   shell->last_exit_status = 0;
 
-  shell->is_interactive = isatty(STDIN_FILENO);
+  shell->is_interactive = !script;
 
   shell->tty_fd = STDIN_FILENO;
 
   if (shell->is_interactive) {
     shell->tty_fd = open("/dev/tty", O_RDWR);
-    if (shell->tty_fd == -1)
+    if (shell->tty_fd == -1) {
+      perror("open");
+      fprintf(stderr, "msh: job control disabled\n");
       shell->tty_fd = STDIN_FILENO;
+      shell->job_control_flag = 0;
+    }
   } else {
     shell->tty_fd = -1;
     shell->job_control_flag = 0;
@@ -371,18 +398,21 @@ int init_shell_state(t_shell *shell, int script) {
   if (shell->is_interactive) {
     if (setpgid(0, 0) < 0) {
       if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-        perror("warning: setpgid fail");
+        perror("setpgid");
+        fprintf(stderr, "msh: job control disabled\n");
         shell->job_control_flag = 0;
       }
     }
   }
+
   shell->pgid = getpgrp();
 
   if (shell->is_interactive && shell->job_control_flag && shell->tty_fd != -1 &&
       shell->tty_fd != STDIN_FILENO) {
     if (tcsetpgrp(shell->tty_fd, shell->pgid) == -1) {
       if (errno != EINVAL && errno != ENOTTY) {
-        perror("warning: tcsetpgrp failed");
+        perror("tcsetpgrp");
+        fprintf(stderr, "msh: job control disabled\n");
         shell->job_control_flag = 0;
       }
     }
@@ -391,7 +421,7 @@ int init_shell_state(t_shell *shell, int script) {
   shell->job_table =
       (t_job **)malloc(sizeof(t_job *) * INITIAL_JOB_TABLE_LENGTH);
   if (shell->job_table == NULL) {
-    perror("fatal job table alloc err");
+    perror("job table fail");
     return -1;
   }
   for (size_t i = 0; i < INITIAL_JOB_TABLE_LENGTH; i++)
@@ -416,14 +446,15 @@ int init_shell_state(t_shell *shell, int script) {
 
   shell->last_exit_status = 0;
 
-  strcpy(shell->sh_name, "msh");
-
   if (push_built_ins(shell) == -1) {
     perror("failure to initialize");
     return -1;
   }
 
-  init_env(shell);
+  if (init_env(shell) == -1) {
+    return -1;
+  }
+
   shell->path = getenv_local_ref(&shell->env, "PATH");
   if (shell->path) {
     shell->path_len = strlen(shell->path);
@@ -439,7 +470,7 @@ int init_shell_state(t_shell *shell, int script) {
   shell->exec_ctx.fnest_d = 0;
   shell->exec_ctx.script = script;
 
-  if (!script) {
+  if (shell->is_interactive) {
     load_rc(shell);
     load_history(shell);
     shell->script_fstream = NULL;
@@ -448,8 +479,6 @@ int init_shell_state(t_shell *shell, int script) {
   shell->pending_hds = NULL;
   shell->pending_hds_cap = 0;
   shell->pending_hds_len = 0;
-
-  shell->is_interactive = !script;
 
   return 0;
 }

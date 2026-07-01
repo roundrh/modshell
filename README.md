@@ -32,7 +32,7 @@ The 3 builds are: all, dev, prod.
 - GCC
 - make
 
-## Key Features (With Technical Details) 
+## Key Features
 - Zero dependency TUI, built with raw mode termios and ANSI escape codes
 - Autosuggestions:
   - Renders ghost text, right arrow to autocomplete suggestion
@@ -69,8 +69,7 @@ The 3 builds are: all, dev, prod.
 Ranked by priority:
   - Add switch/case
   - Add until loop
-  - Fix weird error paths (exit calls on ENOMEM must be an error return not exit)
-  - Encapsulate execution context in t_exec_ctx struct for readability (executor.c)
+  - Fix inconsistent error paths (exit calls on ENOMEM must be an error return not exit)
   - Change strdup calls in get_matches / tab_dbl pager pipeline to use arena (userinp.c)
   - Finish set builtin to control shell
   - Add PS1 and completion for multi-line input

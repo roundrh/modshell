@@ -1,6 +1,4 @@
 #include "ast.h"
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * @brief initializes ast node
@@ -83,6 +81,13 @@ fail:
   return NULL;
 }
 
+/**
+ * @brief measures left-parent-right of an ast by counting the total length
+ * of characters in the tok segment of the node
+ *
+ * @note OP_FOR metadata does not expand here yet, executor treats OP_FUN as a
+ * short-circuit add and return
+ */
 static size_t measure_lpr(const t_ast_n *node) {
   if (!node)
     return 0;
@@ -123,7 +128,7 @@ static size_t measure_lpr(const t_ast_n *node) {
 
 typedef struct {
   char *buf;
-  size_t pos;
+  size_t pos; // index into the buf
   size_t cap;
 } t_copy_ctx;
 
@@ -140,6 +145,9 @@ static t_token *copy_token_segment(const t_token *base, size_t len,
     arr[i].start = ctx->buf + ctx->pos;
     arr[i].len = base[i].len;
     arr[i].type = base[i].type;
+
+    // needed here for spaces else all function execution breaks, beats
+    // tokenizing whitespaces
     arr[i].trailing_delim = base[i].trailing_delim;
 
     memcpy(ctx->buf + ctx->pos, base[i].start, base[i].len);
@@ -208,6 +216,14 @@ fail:
   return NULL;
 }
 
+/**
+ * @brief clones ast from arena into heap lpr to ensure correct ordering
+ * throughout
+ *
+ * @note the token stream allocated to the heap must consist of a fully
+ * contigious buffer in memory emulating cmd_buf, variable expansion requires
+ * this to work correctly
+ */
 t_ast_n *clone_heap_ast(const t_ast_n *src) {
   if (!src)
     return NULL;
@@ -235,12 +251,16 @@ static void free_io_redir(t_io_redir **redir) {
     return;
   for (size_t i = 0; redir[i]; i++) {
     free(redir[i]->filename);
-    free(redir[i]->hd_body);
+    free(redir[i]->hd_body); // can be null
     free(redir[i]);
   }
   free(redir);
 }
 
+/*
+ * @brief finds the lowest address to find where input buffer begins in to be
+ * freed AST
+ */
 static char *find_buf_base(const t_ast_n *node, char *cur_min) {
   if (!node)
     return cur_min;

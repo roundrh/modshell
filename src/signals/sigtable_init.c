@@ -1,4 +1,5 @@
 #include "sigtable_init.h"
+#include "sigstruct.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -21,12 +22,6 @@ void sigchld_handler(int sig) {
 void sigint_handler(int sig) {
   (void)sig;
   sigint_flag = 1;
-  while (write(STDOUT_FILENO, "\n", 1) < 0) {
-    if (errno == EINTR)
-      continue;
-    else
-      break;
-  }
 }
 void sigtstp_handler(int sig) {
   (void)sig;
@@ -38,11 +33,6 @@ void sigwinch_handler(int sig) {
 }
 
 int init_pa_sigtable(t_shell_sigtable *sigtable) {
-
-  if (sigtable == NULL) {
-    return -1;
-  }
-
   INIT_SIG(sigtable, sigint, SIG_IGN, 0, SIGINT);
   INIT_SIG(sigtable, sigquit, SIG_IGN, 0, SIGQUIT);
   INIT_SIG(sigtable, sigtstp, SIG_IGN, 0, SIGTSTP);

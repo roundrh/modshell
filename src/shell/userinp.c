@@ -1,4 +1,5 @@
 #include "userinp.h"
+#include <fcntl.h>
 #include <unistd.h>
 
 static size_t last_rows_drawn = 0;
@@ -35,10 +36,30 @@ static void tty_write(int fd, const char *s) {
 }
 
 void get_term_size(int *rows, int *cols) {
-  struct winsize w;
-  ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-  *rows = w.ws_row;
-  *cols = w.ws_col;
+  struct winsize w = {0};
+  int fds[] = {STDOUT_FILENO, STDERR_FILENO, STDIN_FILENO};
+
+  for (int i = 0; i < 3; i++) {
+    if (ioctl(fds[i], TIOCGWINSZ, &w) == 0 && w.ws_row > 0 && w.ws_col > 0) {
+      *rows = w.ws_row;
+      *cols = w.ws_col;
+      return;
+    }
+  }
+
+  int ttyfd = open("/dev/tty", O_RDONLY | O_NOCTTY);
+  if (ttyfd != -1) {
+    ioctl(ttyfd, TIOCGWINSZ, &w);
+    close(ttyfd);
+    if (w.ws_row > 0 && w.ws_col > 0) {
+      *rows = w.ws_row;
+      *cols = w.ws_col;
+      return;
+    }
+  }
+
+  *rows = 24;
+  *cols = 80;
 }
 /**
  * @brief handle reallocation of line buffer
@@ -52,10 +73,6 @@ void get_term_size(int *rows, int *cols) {
  */
 static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len,
                               t_arena *a) {
-
-  if (!buf || !(*buf) || !buf_cap || !buf_len || *buf_cap <= 0)
-    return -1;
-
   if (*buf_len < *buf_cap - 1)
     return 0;
 
@@ -66,7 +83,7 @@ static int handle_realloc_buf(char **buf, size_t *buf_cap, size_t *buf_len,
 
   char *new_buf = arena_realloc(a, *buf, new_size, *buf_cap);
   if (!new_buf) {
-    perror("fail to realloc new_buf");
+    perror("realloc");
     return -1;
   }
 
@@ -613,7 +630,6 @@ char *read_user_inp(t_shell *shell) {
 
   bool tab = false;
   while (1) {
-
     redraw_cmd(shell, cmd, cmd_len, cmd_idx, &suggestion_node);
 
     if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len, &shell->arena) == -1)
@@ -629,6 +645,9 @@ char *read_user_inp(t_shell *shell) {
         if (sigwinch_flag) {
           sigwinch_flag = 0;
           continue;
+        } else if (sigint_flag) {
+          sigint_flag = 0;
+          return NULL;
         }
         continue;
       } else if (errno == EAGAIN || errno == EWOULDBLOCK) {

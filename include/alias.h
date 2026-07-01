@@ -2,9 +2,9 @@
 #define ALIAS_H
 
 #include "hashtable.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct s_alias {
   const char *cmd;

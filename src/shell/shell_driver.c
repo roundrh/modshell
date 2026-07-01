@@ -12,10 +12,8 @@ static t_shell *g_shell_ptr = NULL;
 void set_global_shell_ptr(t_shell *ptr) { g_shell_ptr = ptr; }
 
 void cleanup_global_shell_ptr(void) {
-  if (g_shell_ptr != NULL) {
-    cleanup_shell(g_shell_ptr, 0);
-    g_shell_ptr = NULL;
-  }
+  cleanup_shell(g_shell_ptr, 0);
+  g_shell_ptr = NULL;
 }
 
 static int add_hist_entry(t_shell *shell, const char *line) {
@@ -69,8 +67,8 @@ void make_argl(t_shell *shell, int argc, char **argv) {
 
   shell->argv = malloc(sizeof(char *) * (shell->argc + 1));
   if (!shell->argv) {
-    perror("malloc argl");
-    exit(12);
+    perror("msh: empty argv malloc fail");
+    return;
   }
 
   for (int i = 0; i < shell->argc; i++) {
@@ -79,25 +77,35 @@ void make_argl(t_shell *shell, int argc, char **argv) {
   shell->argv[shell->argc] = NULL;
 }
 
+static int ign_sigint(t_shell_sigtable *sigtable) {
+  INIT_SIG(sigtable, sigint, SIG_IGN, 0, SIGINT);
+  return 0;
+}
+static int unign_sigint(t_shell_sigtable *sigtable) {
+  INIT_SIG(sigtable, sigint, sigint_handler, 0, SIGINT);
+  return 0;
+}
+
 int main(int argc, char **argv) {
 
   t_shell shell_state;
   char *cmd_line_buf = NULL;
 
   set_global_shell_ptr(&shell_state);
-
   atexit(cleanup_global_shell_ptr);
 
   int script = (argc > 1) ? 1 : 0;
   if (init_shell_state(&shell_state, script) == -1) {
-    perror("shell state init fatal fail");
-    exit(1);
+    fprintf(stderr, "msh: fail to initialize\n");
+    return -1;
   }
+
   make_argl(&shell_state, argc, argv);
 
   if (argc > 1) {
-    /* treat signals as dfl */
+
     init_ch_sigtable(&shell_state.shell_sigtable);
+    // init shell already disables this
     shell_state.job_control_flag = 0;
 
     if (argc > 2) {
@@ -139,22 +147,23 @@ int main(int argc, char **argv) {
       printf("\n%s", shell_state.prompt);
 
       rawify(&shell_state);
+      unign_sigint(&shell_state.shell_sigtable);
       cmd_line_buf = read_user_inp(&shell_state);
+      ign_sigint(&shell_state.shell_sigtable);
       unrawify(&shell_state);
     } else {
       size_t cap = 0;
       ssize_t n = getline(&cmd_line_buf, &cap, stdin);
       if (n == -1) {
-        cleanup_shell(&shell_state, shell_state.last_exit_status);
         exit(shell_state.last_exit_status);
       }
     }
 
     if (!cmd_line_buf || *cmd_line_buf == '\0' || *cmd_line_buf == '\n' ||
         *cmd_line_buf == '\r') {
+
       if (shell_state.is_interactive)
         HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
-
       reap_sigchld_jobs(&shell_state);
       continue;
     }

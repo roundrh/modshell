@@ -31,7 +31,7 @@ t_dllnode *push_front_dll(const char *strbg, t_dll *list) {
 
   t_dllnode *nn = (t_dllnode *)malloc(sizeof(t_dllnode));
   if (!nn) {
-    perror("malloc pushfrontdll error");
+    perror("malloc pushfrontdll");
     return NULL;
   }
   nn->strbg = (char *)malloc(strlen(strbg) + 1);
@@ -86,13 +86,13 @@ t_dllnode *push_back_dll(const char *strbg, t_dll *list) {
 
   t_dllnode *nn = (t_dllnode *)malloc(sizeof(t_dllnode));
   if (!nn) {
-    perror("malloc pushbackdll error");
+    perror("malloc pushbackdll");
     return NULL;
   }
 
   nn->strbg = strdup(strbg);
   if (!nn->strbg) {
-    perror("nn strbg fail");
+    perror("nn strbg");
     free(nn);
     return NULL;
   }
