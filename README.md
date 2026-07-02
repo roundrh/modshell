@@ -68,10 +68,9 @@ The 3 builds are: all, dev, prod.
 ## TODO
 Ranked by priority:
   - Add switch/case
-  - Add until loop
   - Fix inconsistent error paths (exit calls on ENOMEM must be an error return not exit)
   - Change strdup calls in get_matches / tab_dbl pager pipeline to use arena (userinp.c)
-  - Finish set builtin to control shell
+  - Finish set builtin
   - Add PS1 and completion for multi-line input
   - Add multi-line prompts
 ## License
