@@ -1304,6 +1304,14 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
   if (sigint_flag || sigtstp_flag)
     return WAIT_INTERRUPTED;
 
+  if (shell->exec_ctx.continue_loop && shell->exec_ctx.flow)
+    return 0;
+  if (shell->exec_ctx.break_loop && shell->exec_ctx.flow)
+    return 0;
+  if (shell->exec_ctx.return_fun) {
+    return shell->last_exit_status;
+  }
+
   t_exec_ctx *ctx = &shell->exec_ctx;
 
   switch (node->op_type) {
@@ -1325,6 +1333,8 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
     return 0;
   }
   case OP_SEQ:
+    if (ctx->break_loop || ctx->continue_loop || ctx->return_fun)
+      return shell->last_exit_status;
     exec_list(cmd_buf, node->left, shell);
     return exec_list(cmd_buf, node->right, shell);
   case OP_AND:
@@ -1371,6 +1381,41 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
         break;
 
       wait = exec_list(cmd_buf, node->right, shell);
+      if (shell->exec_ctx.continue_loop == true) {
+        shell->exec_ctx.continue_loop = false;
+        continue;
+      }
+      if (shell->exec_ctx.break_loop == true) {
+        shell->exec_ctx.break_loop = false;
+        break;
+      }
+      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED)
+        break;
+    }
+    ctx->flow = prev_flow;
+
+    return WAIT_FINISHED;
+  }
+  case OP_UNTIL: {
+
+    bool prev_flow = ctx->flow;
+    ctx->flow = true;
+    while (!sigint_flag && !sigtstp_flag) {
+      /* force reap when some larp decides to spam the job table */
+      if (is_job_table_full(shell)) {
+        wait_for_job_slot(shell);
+      }
+
+      t_wait_status wait;
+      wait = exec_list(cmd_buf, node->left, shell);
+      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED)
+        break;
+      if (shell->last_exit_status == 0)
+        break;
+
+      wait = exec_list(cmd_buf, node->right, shell);
       if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
           wait == WAIT_STOPPED)
         break;
@@ -1397,7 +1442,6 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
     bool prev_flow = ctx->flow;
     ctx->flow = true;
     for (int i = 0; expanded_items[i] != NULL; i++) {
-      // see OP_WHILE
       if (is_job_table_full(shell)) {
         wait_for_job_slot(shell);
       }
@@ -1407,6 +1451,14 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
       add_to_env(shell, var_name, expanded_items[i], false, 0);
       t_wait_status wait = exec_list(cmd_buf, node->sub_ast_root, shell);
+      if (shell->exec_ctx.continue_loop == true) {
+        shell->exec_ctx.continue_loop = false;
+        continue;
+      }
+      if (shell->exec_ctx.break_loop == true) {
+        shell->exec_ctx.break_loop = false;
+        break;
+      }
       if (wait == WAIT_INTERRUPTED || wait == WAIT_STOPPED)
         break;
     }
@@ -1431,8 +1483,8 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 int parse_and_execute(char **cmd_buf, t_shell *shell,
                       t_token_stream *token_stream, bool script,
                       t_err_code *last_err) {
-
   *last_err = -1;
+  shell->exec_ctx.return_fun = false;
 
   init_token_stream(token_stream, &shell->arena);
   t_hashtable *aliases = &(shell->aliases);

@@ -32,7 +32,7 @@ static int find_at_depth(t_token_stream *ts, int start, int end,
       return i;
 
     if (t == TOKEN_IF || t == TOKEN_WHILE || t == TOKEN_OPEN_PAR ||
-        t == TOKEN_FOR || t == TOKEN_LBRACE)
+        t == TOKEN_FOR || t == TOKEN_LBRACE || t == TOKEN_UNTIL)
       depth++;
     if (depth == 1 && t == wanted)
       return i;
@@ -308,10 +308,11 @@ static int next_terminator_index(t_token_stream *ts, int start, int end,
   int if_depth = 0;
   int while_depth = 0;
   int for_depth = 0;
+  int until_depth = 0;
   int paren_depth = 0;
   int brace_depth = 0;
 
-  enum e_f_w { FOR = 1, WHILE = 2 };
+  enum e_f_w { FOR = 1, WHILE = 2, UNTIL = 3 };
   int done_last = 0;
 
   for (int i = start; i <= end; i++) {
@@ -334,6 +335,10 @@ static int next_terminator_index(t_token_stream *ts, int start, int end,
     } else if (type == TOKEN_LBRACE) {
       depth++;
       brace_depth++;
+    } else if (type == TOKEN_UNTIL) {
+      depth++;
+      until_depth++;
+      done_last = UNTIL;
     }
 
     else if (type == TOKEN_FI) {
@@ -344,6 +349,8 @@ static int next_terminator_index(t_token_stream *ts, int start, int end,
         for_depth--;
       else if (done_last == WHILE)
         while_depth--;
+      else if (done_last == UNTIL)
+        until_depth--;
 
       done_last = 0;
       depth--;
@@ -367,6 +374,8 @@ static int next_terminator_index(t_token_stream *ts, int start, int end,
     else if (while_depth != 0)
       *last_err = ERR_MISSING_DONE;
     else if (for_depth != 0)
+      *last_err = ERR_MISSING_DONE;
+    else if (until_depth != 0)
       *last_err = ERR_MISSING_DONE;
     else if (paren_depth != 0)
       *last_err = ERR_UNBALANCED_PARENS;
@@ -589,7 +598,8 @@ static t_ast_n *parse_pipeline(t_ast *ast, t_token_stream *ts, int start,
     else if (type == TOKEN_CLOSE_PAR)
       par_depth--;
 
-    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_FOR)
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_FOR ||
+        type == TOKEN_UNTIL)
       flow_depth++;
     else if (type == TOKEN_FI || type == TOKEN_DONE)
       flow_depth--;
@@ -767,6 +777,58 @@ fail:
   exit(12);
 }
 
+static t_ast_n *parse_until(t_ast *ast, t_token_stream *ts, int start, int end,
+                            t_arena *a, t_err_code *last_err) {
+  int do_idx = -1;
+  int done_idx = -1;
+  int depth = 0;
+
+  for (int i = start; i <= end; i++) {
+    t_token_type type = ts->tokens[i].type;
+    if (type == TOKEN_WHILE || type == TOKEN_FOR || type == TOKEN_UNTIL ||
+        type == TOKEN_OPEN_PAR || type == TOKEN_IF || type == TOKEN_LBRACE)
+      depth++;
+    if (depth == 1) {
+      if (type == TOKEN_DO)
+        do_idx = i;
+      if (type == TOKEN_DONE)
+        done_idx = i;
+    }
+    if (type == TOKEN_DONE || type == TOKEN_CLOSE_PAR || type == TOKEN_FI ||
+        type == TOKEN_RBRACE)
+      depth--;
+  }
+  if (do_idx == -1 || done_idx == -1) {
+    if (do_idx == -1)
+      *last_err = ERR_MISSING_DO;
+    else
+      *last_err = ERR_MISSING_DONE;
+
+    return NULL;
+  }
+
+  t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
+  if (!node)
+    goto fail;
+  init_ast_node(node);
+  node->op_type = OP_UNTIL;
+
+  node->left = parse_terminators(ast, ts, start + 1, do_idx - 1, a, last_err);
+  node->right =
+      parse_terminators(ast, ts, do_idx + 1, done_idx - 1, a, last_err);
+
+  if (scan_redirections(node, ts, done_idx + 1, end, a, last_err) == -1) {
+    return NULL;
+  }
+
+  return node;
+
+fail:
+  *last_err = ERR_ALLOC;
+  perror("malloc");
+  exit(12);
+}
+
 static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
                             t_arena *a, t_err_code *last_err) {
   int do_idx = -1;
@@ -775,8 +837,8 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
 
   for (int i = start; i <= end; i++) {
     t_token_type type = ts->tokens[i].type;
-    if (type == TOKEN_WHILE || type == TOKEN_FOR || type == TOKEN_OPEN_PAR ||
-        type == TOKEN_IF || type == TOKEN_LBRACE)
+    if (type == TOKEN_WHILE || type == TOKEN_FOR || type == TOKEN_UNTIL ||
+        type == TOKEN_OPEN_PAR || type == TOKEN_IF || type == TOKEN_LBRACE)
       depth++;
     if (depth == 1) {
       if (type == TOKEN_DO)
@@ -944,6 +1006,8 @@ static t_ast_n *parse_flow_control(t_ast *ast, t_token_stream *ts, int start,
     return parse_for(ast, ts, start, end, a, last_err);
   } else if (type == TOKEN_FUN) {
     return parse_function(ast, ts, start, end, a, last_err);
+  } else if (type == TOKEN_UNTIL) {
+    return parse_until(ast, ts, start, end, a, last_err);
   }
   return parse_command(ast, ts, start, end, a, last_err);
 }

@@ -53,12 +53,15 @@ typedef struct s_env_entry {
 } t_env_entry;
 
 typedef struct s_exec_ctx {
-  bool is_subshell;
   t_job *subshell_job;
   const t_ast_n *pipeline;
+  int fnest_d;
   bool flow;
   bool script;
-  int fnest_d;
+  bool return_fun;
+  bool break_loop;
+  bool continue_loop;
+  bool is_subshell;
 } t_exec_ctx;
 
 typedef struct s_fd_backup {
@@ -101,6 +104,7 @@ typedef struct shell_s {
 
   size_t path_len;
   size_t prompt_len;
+
   size_t job_table_cap;
   size_t job_count;
 

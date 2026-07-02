@@ -636,6 +636,7 @@ char *read_user_inp(t_shell *shell) {
       return NULL;
     if (sigwinch_flag) {
       sigwinch_flag = 0;
+      get_term_size(&shell->rows, &shell->cols);
       continue;
     }
 

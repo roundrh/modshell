@@ -40,6 +40,7 @@ typedef enum e_op_types {
   OP_SUBSHELL,
   OP_IF,
   OP_WHILE,
+  OP_UNTIL,
   OP_FOR,
   OP_FUN
 } t_op_type;

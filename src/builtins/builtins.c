@@ -666,6 +666,37 @@ int unset_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   check_rehash(shell, argv[1]);
   return 0;
 }
+int break_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (!shell->exec_ctx.flow) {
+    fprintf(stderr, "break: not in for, while, or until, loop\n");
+    shell->last_exit_status = 1;
+    return -1;
+  }
+
+  shell->exec_ctx.break_loop = true;
+  shell->last_exit_status = 0;
+
+  return 0;
+}
+int continue_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (!shell->exec_ctx.flow) {
+    fprintf(stderr, "continue: not in for, while, or until, loop\n");
+    shell->last_exit_status = 1;
+    return -1;
+  }
+
+  shell->exec_ctx.continue_loop = true;
+  shell->last_exit_status = 0;
+  return 0;
+}
+int return_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  shell->exec_ctx.return_fun = true;
+  if (argv[1]) {
+    return (shell->last_exit_status = atoi(argv[1]));
+  }
+
+  return 0;
+}
 
 int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   char *eq_ptr = strchr(argv[0], '=');

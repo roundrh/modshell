@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
   set_global_shell_ptr(&shell_state);
   atexit(cleanup_global_shell_ptr);
 
-  int script = (argc > 1) ? 1 : 0;
+  bool script = (argc > 1) ? true : false;
   if (init_shell_state(&shell_state, script) == -1) {
     fprintf(stderr, "msh: fail to initialize\n");
     return -1;

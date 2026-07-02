@@ -129,12 +129,14 @@ t_token_type check_reserved_word(const char *start, size_t len) {
     return TOKEN_FOR;
   if (len == 2 && strncmp(start, "in", 2) == 0)
     return TOKEN_IN;
+  if (len == 5 && strncmp(start, "until", 5) == 0)
+    return TOKEN_UNTIL;
+
   return TOKEN_SIMPLE;
 }
 
 static int check_realloc_toks_arr(t_token_stream *ts, size_t tok_count,
                                   t_arena *a) {
-
   if (tok_count + 2 < ts->tokens_arr_cap)
     return 0;
 

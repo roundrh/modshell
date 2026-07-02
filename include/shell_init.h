@@ -70,6 +70,8 @@ extern char **environ;
 
 void refresh_path_bins(t_shell *shell);
 
+void prompt_metrics(const char *s, int term_cols, size_t *rows, size_t *cols);
+
 int get_shell_prompt(t_shell *shell);
 /**
  * @def init_shell_state(t_shell* shell)
@@ -81,6 +83,6 @@ int get_shell_prompt(t_shell *shell);
  *
  * @note Driver calls this function prior to main loop.
  */
-int init_shell_state(t_shell *shell, int script);
+int init_shell_state(t_shell *shell, bool script);
 
 #endif // ! SHELL_INIT_H

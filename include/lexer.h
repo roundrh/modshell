@@ -40,6 +40,7 @@ typedef enum e_token_type {
   TOKEN_ELIF,
   TOKEN_FI,
   TOKEN_WHILE,
+  TOKEN_UNTIL,
   TOKEN_FOR,
   TOKEN_IN,
   TOKEN_DO,

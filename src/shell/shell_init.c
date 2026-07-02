@@ -173,6 +173,12 @@ static int push_built_ins(t_shell *shell) {
     return -1;
   if (!insert_builtin(&shell->builtins, "local", local_builtin))
     return -1;
+  if (!insert_builtin(&shell->builtins, "break", break_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "continue", continue_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "return", return_builtin))
+    return -1;
 
   return 0;
 }
@@ -355,7 +361,7 @@ int init_env(t_shell *shell) {
  *
  * @note mallocd env freed in shell_cleanup.h, called atexit()
  */
-int init_shell_state(t_shell *shell, int script) {
+int init_shell_state(t_shell *shell, bool script) {
 
   shell->exflag = 0;
 
@@ -469,6 +475,9 @@ int init_shell_state(t_shell *shell, int script) {
   shell->exec_ctx.flow = false;
   shell->exec_ctx.fnest_d = 0;
   shell->exec_ctx.script = script;
+  shell->exec_ctx.continue_loop = false;
+  shell->exec_ctx.break_loop = false;
+  shell->exec_ctx.return_fun = false;
 
   if (shell->is_interactive) {
     load_rc(shell);
