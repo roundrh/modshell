@@ -12,12 +12,7 @@
  * @brief implementation of functions used to execute AST.
  */
 
-typedef enum e_pgrp {
-
-  PGPR_NONE = 0,
-  PGRP_FATAL = -1,
-  PGRP_INVAL = -2
-} t_pgrp;
+typedef enum e_pgrp { PGPR_NONE = 0, PGRP_FATAL = -1, PGRP_INVAL = -2 } t_pgrp;
 
 static void del_local_depth(size_t depth, t_hashtable *env) {
   for (size_t i = 0; i < env->count; ++i) {
@@ -1147,7 +1142,6 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
 }
 
 static inline t_pgrp handle_tcsetpgrp(t_shell *shell, pid_t pgid) {
-
   if (pgid == -1) {
     return PGRP_INVAL;
   }
@@ -1167,7 +1161,6 @@ static inline t_pgrp handle_tcsetpgrp(t_shell *shell, pid_t pgid) {
 }
 
 static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell) {
-
   t_exec_ctx *ctx = &shell->exec_ctx;
   t_job *job = NULL;
   if (!ctx->is_subshell)

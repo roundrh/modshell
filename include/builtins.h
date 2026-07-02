@@ -67,5 +67,6 @@ int local_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int return_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int break_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int continue_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int type_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H

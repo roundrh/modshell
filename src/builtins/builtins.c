@@ -262,7 +262,7 @@ int jobs_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 int fg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   if (shell->job_control_flag == -1) {
-    fprintf(stderr, "\nmsh: job control disabled");
+    fprintf(stderr, "msh: job control disabled\n");
     return -1;
   }
 
@@ -274,7 +274,7 @@ int fg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   int argc = i;
 
   if (argc < 2 || argc > 2) {
-    fprintf(stderr, "\nmsh: fg: syntax error: fg %%<JOB_ID>");
+    fprintf(stderr, "msh: fg: syntax error: fg %%<JOB_ID>\n");
     return -1;
   }
 
@@ -286,13 +286,13 @@ int fg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   int job_id = atoi(id_str);
   if (job_id <= 0) {
-    fprintf(stderr, "\nmsh: invalid job id.");
+    fprintf(stderr, "msh: invalid job id.\n");
     return -1;
   }
 
   t_job *job = find_job(shell, job_id);
   if (!job) {
-    fprintf(stderr, "\nmsh: no job with id %d", job_id);
+    fprintf(stderr, "msh: no job with id %d\n", job_id);
     return -1;
   }
 
@@ -342,7 +342,7 @@ int fg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 int bg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   if (shell->job_control_flag == -1) {
-    fprintf(stderr, "\nmsh: job control disabled");
+    fprintf(stderr, "msh: job control disabled\n");
     return -1;
   }
 
@@ -357,7 +357,7 @@ int bg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   int argc = i;
 
   if (argc < 2 || argc > 2) {
-    fprintf(stderr, "\nIncorrect usage: bg %%<JOB_ID>");
+    fprintf(stderr, "msh: incorrect usage: bg %%<JOB_ID>\n");
     return -1;
   }
 
@@ -369,13 +369,13 @@ int bg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   int job_id = atoi(id_str);
   if (job_id <= 0) {
-    fprintf(stderr, "\nInvalid job id.");
+    fprintf(stderr, "msh: invalid job id.\n");
     return -1;
   }
 
   t_job *job = find_job(shell, job_id);
   if (!job) {
-    fprintf(stderr, "\nmsh: no job with id %d", job_id);
+    fprintf(stderr, "msh: no job with id %d\n", job_id);
     return -1;
   }
 
@@ -649,6 +649,41 @@ int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   check_rehash(shell, var_name);
   return 0;
 }
+
+int type_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+  if (!argv[1]) {
+    return 1;
+  }
+
+  for (int i = 1; argv[i]; i++) {
+    char *name = argv[i];
+
+    t_ht_node *alias_node = ht_find(&shell->aliases, name);
+    if (alias_node) {
+      t_alias *alias_val = (t_alias *)alias_node->value;
+      printf("%s is aliased to `%s`\n", name, alias_val->cmd);
+      continue;
+    }
+
+    t_ht_node *bin_node = ht_find(&shell->builtins, name);
+    if (bin_node) {
+      printf("%s is a shell builtin\n", name);
+      continue;
+    }
+
+    t_ht_node *path_node = ht_find(&shell->bins, name);
+    if (path_node && path_node->value) {
+      printf("%s is %s\n", name, (char *)path_node->value);
+      continue;
+    }
+
+    fprintf(stderr, "%s: not found\n", name);
+  }
+
+  return 0;
+}
+
 /**
  * @brief Builtin unset command - remove environment variable
  * @param node AST node containing command arguments

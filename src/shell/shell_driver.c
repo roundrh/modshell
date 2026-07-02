@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[5 q", 5, cmd_line_buf);
 
       get_shell_prompt(&shell_state);
-      printf("\n%s", shell_state.prompt);
+      printf("%s", shell_state.prompt);
 
       rawify(&shell_state);
       unign_sigint(&shell_state.shell_sigtable);
