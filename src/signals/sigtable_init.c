@@ -23,10 +23,6 @@ void sigint_handler(int sig) {
   (void)sig;
   sigint_flag = 1;
 }
-void sigtstp_handler(int sig) {
-  (void)sig;
-  sigtstp_flag = 1;
-}
 void sigwinch_handler(int sig) {
   (void)sig;
   sigwinch_flag = 1;

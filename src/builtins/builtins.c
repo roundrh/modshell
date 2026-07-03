@@ -407,21 +407,104 @@ int bg_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
+static bool is_valid_echo_flag(const char *arg) {
+  if (arg[0] != '-' || arg[1] == '\0')
+    return false;
+  for (int i = 1; arg[i]; i++) {
+    if (arg[i] != 'n' && arg[i] != 'e' && arg[i] != 'E')
+      return false;
+  }
+  return true;
+}
+
+static void print_escaped(const char *s) {
+  for (size_t i = 0; s[i]; i++) {
+    if (s[i] == '\\' && s[i + 1]) {
+      switch (s[i + 1]) {
+      case 'n':
+        putchar('\n');
+        i++;
+        break;
+      case 't':
+        putchar('\t');
+        i++;
+        break;
+      case 'r':
+        putchar('\r');
+        i++;
+        break;
+      case '\\':
+        putchar('\\');
+        i++;
+        break;
+      case 'a':
+        putchar('\a');
+        i++;
+        break;
+      case 'b':
+        putchar('\b');
+        i++;
+        break;
+      case 'v':
+        putchar('\v');
+        i++;
+        break;
+      case 'f':
+        putchar('\f');
+        i++;
+        break;
+      case '0': {
+        int val = 0, n = 0;
+        size_t j = i + 2;
+        while (n < 3 && s[j] >= '0' && s[j] <= '7') {
+          val = val * 8 + (s[j] - '0');
+          j++;
+          n++;
+        }
+        putchar(val);
+        i = j - 1;
+        break;
+      }
+      default:
+        putchar(s[i]);
+      }
+    } else {
+      putchar(s[i]);
+    }
+  }
+}
+
 int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+  (void)shell;
   if (!argv || !argv[0])
     return 0;
 
   bool newline = true;
+  bool interpret_escapes = false;
   int i = 1;
-  if (argv[i] && strcmp(argv[i], "-n") == 0) {
-    newline = false;
+
+  while (argv[i] && is_valid_echo_flag(argv[i])) {
+    for (int j = 1; argv[i][j]; j++) {
+      if (argv[i][j] == 'n')
+        newline = false;
+      else if (argv[i][j] == 'e')
+        interpret_escapes = true;
+      else if (argv[i][j] == 'E')
+        interpret_escapes = false;
+    }
     i++;
   }
+
   for (; argv[i]; i++) {
-    fputs(argv[i], stdout);
+    if (interpret_escapes)
+      print_escaped(argv[i]);
+    else
+      fputs(argv[i], stdout);
     if (argv[i + 1])
       putchar(' ');
   }
+
   if (newline)
     putchar('\n');
 
@@ -513,13 +596,38 @@ int shopt_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     return 1;
   }
 
-  if (strcmp(argv[1], "-as") == 0) {
-    shell->shopts.render_autosgst = true;
-  } else if (strcmp(argv[1], "+as") == 0) {
-    shell->shopts.render_autosgst = false;
+  if (strcmp(argv[1], "-s") == 0) {
+
+    if (argv[2] == NULL) {
+      fprintf(stderr, "shopt: missing option\n");
+      return 1;
+    }
+
+    if (strcmp(argv[2], "autosuggest") == 0)
+      shell->shopts.render_autosgst = true;
+    else {
+      fprintf(stderr, "shopt: unknown option\n");
+      return 1;
+    }
+  } else if (strcmp(argv[1], "-u") == 0) {
+    if (argv[2] == NULL) {
+      fprintf(stderr, "shopt: missing option\n");
+      return 1;
+    }
+    if (strcmp(argv[2], "autosuggest") == 0)
+      shell->shopts.render_autosgst = false;
+    else {
+      fprintf(stderr, "shopt: unknown option\n");
+      return 1;
+    }
   } else {
-    fprintf(stderr, "shopt: unknown flag\n");
-    return 1;
+    if (strcmp(argv[1], "autosuggest") == 0) {
+      shell->shopts.render_autosgst ? printf("autosuggest     on")
+                                    : printf("autosuggest     off");
+    } else {
+      fprintf(stderr, "shopt: unknown option\n");
+      return 1;
+    }
   }
 
   return 0;

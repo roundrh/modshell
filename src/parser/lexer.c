@@ -300,7 +300,19 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
 
     check_realloc_toks_arr(token_stream, token_count, a);
 
-    if (!in_single_quote && !in_double_quote && cmd_buf[i] == '\'') {
+    if (!in_single_quote && !in_double_quote && cmd_buf[i] == '\\') {
+      if (!tokenized) {
+        tok_start = &cmd_buf[i];
+        tokenized = true;
+      }
+      word_len++;
+      i++;
+      if (cmd_buf[i] != '\0') {
+        word_len++;
+        i++;
+      }
+      continue;
+    } else if (!in_single_quote && !in_double_quote && cmd_buf[i] == '\'') {
       in_single_quote = true;
       if (!tokenized) {
         tok_start = &cmd_buf[i];
@@ -392,6 +404,16 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
       }
     } else {
 
+      if (in_double_quote && cmd_buf[i] == '\\' &&
+          (cmd_buf[i + 1] == '"' || cmd_buf[i + 1] == '\\' ||
+           cmd_buf[i + 1] == '$' || cmd_buf[i + 1] == '`')) {
+        word_len++;
+        i++;
+        if (cmd_buf[i] != '\0')
+          word_len++;
+        i++;
+        continue;
+      }
       if (in_single_quote && cmd_buf[i] == '\'') {
         in_single_quote = false;
       }

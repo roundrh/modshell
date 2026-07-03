@@ -1052,6 +1052,15 @@ t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
 
     while (p < end) {
 
+      if (*p == '\\' && !sq && *(p + 1) &&
+          (!dq || *(p + 1) == '"' || *(p + 1) == '\\' || *(p + 1) == '$' ||
+           *(p + 1) == '`')) {
+        char esc[2] = {*(p + 1), '\0'};
+        append_to_buf(buf, buf_cap, &k, esc, a);
+        p += 2;
+        continue;
+      }
+
       if (*p == '\'' && !dq)
         sq = !sq;
       else if (*p == '"' && !sq)
@@ -1187,7 +1196,7 @@ void strip_quotes(char *str) {
     } else if (str[r] == '"' && !sq) {
       dq = !dq;
       r++;
-    } else if (str[r] == '\\' && !sq) {
+    } else if (str[r] == '\\' && !sq && !dq) {
       r++;
       if (str[r])
         str[w++] = str[r++];

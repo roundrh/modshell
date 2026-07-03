@@ -6,6 +6,7 @@
 #include "lexer.h"
 #include "shell.h"
 #include "shell_init.h"
+#include <signal.h>
 
 #define DEFSIZE_PIDS 8
 
@@ -1529,29 +1530,33 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   collect_pending_hds(root, &idx, shell);
 
   struct sigaction sa_int, osa_int;
-  struct sigaction sa_tstp, osa_tstp;
+  struct sigaction sa_winch, osa_winch;
   sigset_t old, new;
 
   if (!script) {
     sigemptyset(&sa_int.sa_mask);
-    sigemptyset(&sa_tstp.sa_mask);
     sa_int.sa_handler = sigint_handler;
-    sa_tstp.sa_handler = sigtstp_handler;
     sa_int.sa_flags = 0;
-    sa_tstp.sa_flags = 0;
     sigaction(SIGINT, &sa_int, &osa_int);
-    sigaction(SIGTSTP, &sa_tstp, &osa_tstp);
 
     sigemptyset(&new);
     sigaddset(&new, SIGCHLD);
     sigprocmask(SIG_BLOCK, &new, &old);
   }
+
+  sigemptyset(&sa_winch.sa_mask);
+  sa_winch.sa_handler = SIG_IGN;
+  sa_winch.sa_flags = 0;
+  sigaction(SIGWINCH, &sa_winch, &osa_winch);
+
   exec_list(*cmd_buf, root, shell);
+
   if (!script) {
     sigprocmask(SIG_SETMASK, &old, NULL);
     sigaction(SIGINT, &osa_int, NULL);
-    sigaction(SIGTSTP, &osa_tstp, NULL);
   }
+
+  sigaction(SIGWINCH, &osa_winch, NULL);
   shell->ast.root = NULL;
 
   sigint_flag = 0;
