@@ -2,6 +2,7 @@
 #include "builtins.h"
 #include "executor.h"
 #include "shell.h"
+#include "var_exp.h"
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
@@ -58,6 +59,7 @@ static void load_rc(t_shell *shell) {
       int fd = open(rc_path, O_CREAT | O_WRONLY | O_EXCL, 0644);
       if (fd != -1) {
         dprintf(fd, "# msh config file\n\n");
+        dprintf(fd, "export MSH_RENDER_AUTOSGST=1\n\n");
         dprintf(fd, "export FUNCNEST=10\n\n");
         dprintf(fd, "# aliases\n");
         dprintf(fd, "alias l='ls -lAh'\n");
@@ -181,6 +183,8 @@ static int push_built_ins(t_shell *shell) {
   if (!insert_builtin(&shell->builtins, "return", return_builtin))
     return -1;
   if (!insert_builtin(&shell->builtins, "type", type_builtin))
+    return -1;
+  if (!insert_builtin(&shell->builtins, "shopt", shopt_builtin))
     return -1;
 
   return 0;
@@ -489,6 +493,19 @@ int init_shell_state(t_shell *shell, bool script) {
   shell->pending_hds = NULL;
   shell->pending_hds_cap = 0;
   shell->pending_hds_len = 0;
+
+  char *rndr = getenv_local(&shell->env, "MSH_RENDER_AUTOSGST", &shell->arena);
+  if (!rndr) {
+    shell->shopts.render_autosgst = false;
+  } else {
+    int x = atoi(rndr);
+    if (x == 1)
+      shell->shopts.render_autosgst = true;
+    else
+      shell->shopts.render_autosgst = false;
+  }
+
+  arena_reset(&shell->arena);
 
   return 0;
 }

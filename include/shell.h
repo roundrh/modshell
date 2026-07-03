@@ -44,6 +44,10 @@ typedef enum e_err_code {
   ERR_ALLOC,
 } t_err_code;
 
+typedef struct s_shopts {
+  bool render_autosgst;
+} t_shopt;
+
 typedef struct s_env_entry {
   char *name;
   char *val;
@@ -133,6 +137,8 @@ typedef struct shell_s {
   char **pending_hds;
   size_t pending_hds_cap;
   size_t pending_hds_len;
+
+  t_shopt shopts;
 
   t_exec_ctx exec_ctx;
 } t_shell;

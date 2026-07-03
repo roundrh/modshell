@@ -133,7 +133,7 @@ void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
   get_term_size(&rows, &cols);
 
   size_t slen = 0;
-  if (suggestion) {
+  if (shell->shopts.render_autosgst && suggestion) {
     *suggestion = search_history(shell, cmd, cmd_len, cmd_idx, *suggestion);
     if (*suggestion) {
       slen = strlen((*suggestion)->strbg);
@@ -633,6 +633,7 @@ char *read_user_inp(t_shell *shell) {
   while (1) {
     if (sigchld_flag) {
       sigchld_flag = 0;
+      printf("\n");
       reap_sigchld_jobs(shell);
     }
 

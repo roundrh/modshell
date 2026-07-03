@@ -35,7 +35,10 @@ The 3 builds are: all, dev, prod.
 ## Key Features
 - Zero dependency TUI, built with raw mode termios and ANSI escape codes
 - Autosuggestions:
-  - Renders ghost text, right arrow to autocomplete suggestion
+  - Renders ghost text, right arrow to autocomplete 
+suggestion
+  - Disable/Enable in shell via shopt +as or shopt -as
+  - Disable/Enable persistent via export MSH_RENDER_AUTOSGST=0 or export MSH_RENDER_AUTOSGST=1 found in ~/.mshrc
 - Interactive tab completion:
   - Single tab lists possible matches
   - Double tab launches interactive loop, scrollable with tab, or arrow keys, enter to append, any key to quit.

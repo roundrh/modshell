@@ -507,6 +507,24 @@ int test_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 2;
 }
 
+int shopt_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  if (argv[1] == NULL) {
+    fprintf(stderr, "shopt: missing operand\n");
+    return 1;
+  }
+
+  if (strcmp(argv[1], "-as") == 0) {
+    shell->shopts.render_autosgst = true;
+  } else if (strcmp(argv[1], "+as") == 0) {
+    shell->shopts.render_autosgst = false;
+  } else {
+    fprintf(stderr, "shopt: unknown flag\n");
+    return 1;
+  }
+
+  return 0;
+}
+
 static void print_signals_list(void) {
   printf(" 1. SIGHUP       2. SIGINT       3. SIGQUIT      4. SIGILL\n");
   printf(" 5. SIGTRAP      6. SIGABRT      7. SIGBUS       8. SIGFPE\n");
