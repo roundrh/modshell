@@ -1,4 +1,5 @@
 #include "userinp.h"
+#include "executor.h"
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -630,6 +631,11 @@ char *read_user_inp(t_shell *shell) {
 
   bool tab = false;
   while (1) {
+    if (sigchld_flag) {
+      sigchld_flag = 0;
+      reap_sigchld_jobs(shell);
+    }
+
     redraw_cmd(shell, cmd, cmd_len, cmd_idx, &suggestion_node);
 
     if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len, &shell->arena) == -1)

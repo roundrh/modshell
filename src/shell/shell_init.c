@@ -93,7 +93,7 @@ static void load_history(t_shell *shell) {
   snprintf(path, PATH_MAX, "%s/.msh_history", home);
   FILE *fp = fopen(path, "r");
   if (!fp) {
-    fprintf(stderr, "msh: ~/.msh_history not found: file will be created");
+    fprintf(stderr, "msh: ~/.msh_history not found: file created\n");
     return;
   }
 
@@ -101,11 +101,12 @@ static void load_history(t_shell *shell) {
   size_t len = 0;
   while (getline(&line, &len, fp) != -1) {
     line[strcspn(line, "\n")] = 0;
-    push_back_dll(line, &shell->history);
+    push_front_dll(line, &shell->history);
   }
   free(line);
   fclose(fp);
 }
+
 /**
  * @brief populate built ins hashtable with functions
  * @param shell pointer to shell struct
@@ -387,8 +388,8 @@ int init_shell_state(t_shell *shell, bool script) {
   shell->last_exit_status = 0;
 
   shell->is_interactive = !script;
-
-  shell->tty_fd = STDIN_FILENO;
+  shell->tty_fd = -1;
+  shell->job_control_flag = 0;
 
   if (shell->is_interactive) {
     shell->tty_fd = open("/dev/tty", O_RDWR);
@@ -396,11 +397,9 @@ int init_shell_state(t_shell *shell, bool script) {
       perror("open");
       fprintf(stderr, "msh: job control disabled\n");
       shell->tty_fd = STDIN_FILENO;
-      shell->job_control_flag = 0;
+    } else {
+      shell->job_control_flag = 1;
     }
-  } else {
-    shell->tty_fd = -1;
-    shell->job_control_flag = 0;
   }
 
   if (shell->is_interactive) {
@@ -437,9 +436,6 @@ int init_shell_state(t_shell *shell, bool script) {
 
   shell->job_table_cap = INITIAL_JOB_TABLE_LENGTH;
   shell->job_count = 0;
-
-  if (!shell->is_interactive)
-    shell->job_control_flag = 0;
 
   init_ast(&(shell->ast));
 
@@ -480,6 +476,9 @@ int init_shell_state(t_shell *shell, bool script) {
   shell->exec_ctx.continue_loop = false;
   shell->exec_ctx.break_loop = false;
   shell->exec_ctx.return_fun = false;
+  shell->exec_ctx.pipeline_pids = NULL;
+  shell->exec_ctx.pids_len = 0;
+  shell->exec_ctx.pids_cap = 0;
 
   if (shell->is_interactive) {
     load_rc(shell);

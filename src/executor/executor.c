@@ -7,6 +7,8 @@
 #include "shell.h"
 #include "shell_init.h"
 
+#define DEFSIZE_PIDS 8
+
 /**
  * @file executor.c
  * @brief implementation of functions used to execute AST.
@@ -34,9 +36,32 @@ static char *append_script_line(char *old_buf, const char *new_line,
   size_t old_len = old_buf ? strlen(old_buf) : 0;
   size_t new_len = strlen(new_line);
 
-  char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len);
+  char *new_buf = arena_realloc(a, old_buf, old_len + new_len + 1, old_len + 1);
   memcpy(new_buf + old_len, new_line, new_len + 1);
   return new_buf;
+}
+
+static void child_join_pgrp(t_shell *shell, t_job *job) {
+  if (!shell->job_control_flag || shell->exec_ctx.is_subshell)
+    return;
+
+  if (setpgid(getpid(), job->pgid) < 0) {
+    if (errno != EPERM && errno != EACCES && errno != ESRCH) {
+      perror("setpgid: child join pgrp");
+      _exit(EXIT_FAILURE);
+    }
+  }
+}
+static int parent_place_child_pgrp(t_shell *shell, t_job *job, pid_t pid) {
+  if (!shell->job_control_flag)
+    return 0;
+  if (setpgid(pid, job->pgid) < 0) {
+    if (errno != EPERM && errno != EACCES && errno != ESRCH) {
+      perror("setpgid: parent place child pgrp");
+      return -1;
+    }
+  }
+  return 0;
 }
 
 static void print_err(t_err_code last_err, size_t lc, bool is_script) {
@@ -163,6 +188,33 @@ static int realloc_delims(t_arena *arena, char ***delims, size_t *delims_cap,
   return 0;
 }
 
+static int append_pid_pipeline(int pid, t_exec_ctx *ctx, t_arena *a) {
+
+  if (!ctx->pipeline_pids) {
+    ctx->pipeline_pids = (int *)arena_alloc(a, DEFSIZE_PIDS * sizeof(pid_t));
+    if (!ctx->pipeline_pids)
+      return -1;
+    ctx->pids_len = 0;
+    ctx->pids_cap = DEFSIZE_PIDS;
+  }
+
+  if (ctx->pids_len == ctx->pids_cap) {
+    int *nptr;
+    nptr = (int *)arena_alloc(a, ctx->pids_cap * BUF_GROWTH_FACTOR *
+                                     sizeof(pid_t));
+    if (!nptr)
+      return -1;
+
+    memcpy(nptr, ctx->pipeline_pids, ctx->pids_len * sizeof(pid_t));
+    ctx->pipeline_pids = nptr;
+    nptr = NULL;
+    ctx->pids_cap *= BUF_GROWTH_FACTOR;
+  }
+
+  ctx->pipeline_pids[ctx->pids_len++] = pid;
+  return 0;
+}
+
 static int realloc_strip(t_arena *arena, bool **strip, size_t *strip_cap,
                          size_t strip_cnt) {
   if (strip_cnt < *strip_cap - 1)
@@ -272,7 +324,8 @@ int exec_script(t_shell *shell, const char *path) {
   bool *strip = arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(bool));
   size_t strip_cap = INIT_HD_CAP;
 
-  shell->pending_hds = (char **)arena_alloc(&shell->arena, INIT_HD_CAP);
+  shell->pending_hds =
+      (char **)arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(char *));
   shell->pending_hds_cap = INIT_HD_CAP;
   shell->pending_hds_len = 0;
 
@@ -286,8 +339,9 @@ int exec_script(t_shell *shell, const char *path) {
 
     int cnt =
         cnt_hd_delims(shell, line, &delims, &delims_cap, &strip, &strip_cap);
-    if (cnt > 0) {
-      parse_pending_hd(shell, cnt, delims, strip);
+    if (cnt > 0 && parse_pending_hd(shell, cnt, delims, strip) == -1) {
+      fprintf(stderr, "msh: parse pending hd fail\n");
+      return -1;
     }
 
     total_buf = append_script_line(total_buf, line, &shell->arena);
@@ -297,7 +351,8 @@ int exec_script(t_shell *shell, const char *path) {
       total_buf = NULL;
       arena_reset(&shell->arena);
 
-      shell->pending_hds = (char **)arena_alloc(&shell->arena, INIT_HD_CAP);
+      shell->pending_hds =
+          (char **)arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(char *));
       shell->pending_hds_cap = INIT_HD_CAP;
       shell->pending_hds_len = 0;
     } else {
@@ -526,19 +581,11 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
     perror("fork");
     return -1;
   }
-  if (job->pgid == -1)
-    job->pgid = pid;
 
   if (pid == 0) {
-
-    if (!ctx->is_subshell) {
-      if (setpgid(0, job->pgid) < 0) {
-        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-          perror("280: setpgid");
-          _exit(EXIT_FAILURE);
-        }
-      }
-    }
+    if (job->pgid == -1)
+      job->pgid = getpid();
+    child_join_pgrp(shell, job);
 
     shell->job_control_flag = 0;
     init_ch_sigtable(&(shell->shell_sigtable));
@@ -551,13 +598,9 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
 
     _exit(shell->last_exit_status);
   } else if (shell->job_control_flag) {
+    if (job->pgid == -1)
+      job->pgid = pid;
 
-    if (setpgid(pid, job->pgid) == -1) {
-      if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-        perror("230: parent setpgid");
-        return -1;
-      }
-    }
     t_process *process = make_process(pid);
     if (!process)
       return -1;
@@ -566,6 +609,9 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
       return -1;
     }
     job->last_pid = pid;
+
+    if (parent_place_child_pgrp(shell, job, pid) == -1)
+      return -1;
   }
 
   return pid;
@@ -596,20 +642,12 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     return -1;
   }
 
-  if (job->pgid == -1)
-    job->pgid = pid;
-
   if (pid == 0) {
 
-    if (!ctx->is_subshell) {
-      if (setpgid(0, job->pgid) < 0) {
-        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-          perror("280: setpgid");
-          _exit(EXIT_FAILURE);
-        }
-      }
-    }
+    if (job->pgid == -1)
+      job->pgid = getpid();
 
+    child_join_pgrp(shell, job);
     init_ch_sigtable(&(shell->shell_sigtable));
 
     char **env = flatten_env(&shell->env, &shell->arena);
@@ -626,12 +664,9 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
     _exit(127);
   } else if (shell->job_control_flag) {
 
-    if (setpgid(pid, job->pgid) == -1) {
-      if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-        perror("230: parent setpgid");
-        return -1;
-      }
-    }
+    if (job->pgid == -1)
+      job->pgid = pid;
+
     t_process *process = make_process(pid);
     if (!process)
       return -1;
@@ -640,6 +675,9 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
       return -1;
     }
     job->last_pid = pid;
+
+    if (parent_place_child_pgrp(shell, job, pid) == -1)
+      return -1;
   }
 
   return pid;
@@ -647,8 +685,6 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
 
 static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
                              t_ht_node *builtin_ptr, char **argv) {
-  t_exec_ctx *ctx = &shell->exec_ctx;
-
   if (!argv) {
     perror("argv prop err");
     return -1;
@@ -660,33 +696,22 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
     return -1;
   }
 
-  if (job->pgid == -1)
-    job->pgid = pid;
-
   if (pid == 0) {
 
     init_ch_sigtable(&(shell->shell_sigtable));
 
-    if (!ctx->is_subshell) {
-      if (setpgid(0, job->pgid) < 0) {
-        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-          perror("280: setpgid");
-          _exit(EXIT_FAILURE);
-        }
-      }
-    }
+    if (job->pgid == -1)
+      job->pgid = getpid();
 
+    child_join_pgrp(shell, job);
     t_builtin *b = (t_builtin *)builtin_ptr->value;
     int exit_status = b->fn(node, shell, argv);
     _exit(exit_status);
   } else if (shell->job_control_flag) {
 
-    if (setpgid(pid, job->pgid) == -1) {
-      if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-        perror("230: parent setpgid");
-        return -1;
-      }
-    }
+    if (job->pgid == -1)
+      job->pgid = pid;
+
     t_process *process = make_process(pid);
     if (!process)
       return -1;
@@ -695,6 +720,9 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
       return -1;
     }
     job->last_pid = pid;
+
+    if (parent_place_child_pgrp(shell, job, pid) == -1)
+      return -1;
   }
 
   return pid;
@@ -830,18 +858,10 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job) {
     return -1;
   }
 
-  if (!ctx->is_subshell && job->pgid == -1)
-    job->pgid = pid;
-
   if (pid == 0) {
-    if (!ctx->is_subshell) {
-      if (setpgid(0, job->pgid) < 0) {
-        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-          perror("379: setpgid");
-          _exit(EXIT_FAILURE);
-        }
-      }
-    }
+    if (job->pgid == -1)
+      job->pgid = getpid();
+    child_join_pgrp(shell, job);
 
     shell->job_control_flag = 0;
     init_ch_sigtable(&(shell->shell_sigtable));
@@ -857,10 +877,8 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job) {
     _exit(shell->last_exit_status);
   } else if (shell->job_control_flag) {
 
-    if (setpgid(pid, job->pgid) < 0) {
-      if (errno != EPERM && errno != EACCES && errno != ESRCH)
-        perror("setpgid");
-    }
+    if (!ctx->is_subshell && job->pgid == -1)
+      job->pgid = pid;
 
     t_process *process = make_process(pid);
     if (!process)
@@ -870,6 +888,10 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job) {
       return -1;
     }
     job->last_pid = pid;
+
+    if (parent_place_child_pgrp(shell, job, pid) == -1) {
+      return -1;
+    }
   }
 
   return pid;
@@ -904,8 +926,11 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job) {
     pid = exec_pipe(node, shell, job);
   } else if (node->op_type == OP_SIMPLE) {
     pid = exec_simple_command(node, shell, job);
+    if (pid > 0)
+      append_pid_pipeline(pid, ctx, &shell->arena);
   } else if (node->op_type == OP_SUBSHELL) {
     pid = exec_subshell(node, shell, job);
+    append_pid_pipeline(pid, ctx, &shell->arena);
   }
 
   if (restore_io_flag)
@@ -958,6 +983,16 @@ static t_ast_n *flatten_ast(t_ast_n *node, t_arena *a) {
     return new_node;
   }
 }
+
+static void close_pipeline_fds(int (*pipes)[2], int n) {
+  for (int j = 0; j < n; j++) {
+    if (pipes[j][0] != -1)
+      close(pipes[j][0]);
+    if (pipes[j][1] != -1)
+      close(pipes[j][1]);
+  }
+}
+
 /**
  * @brief executes pipe command on flattened list
  * @param node pointer to ast node
@@ -976,6 +1011,7 @@ static t_ast_n *flatten_ast(t_ast_n *node, t_arena *a) {
 static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
 
   t_exec_ctx *ctx = &shell->exec_ctx;
+  ctx->pipeline = true;
 
   pid_t last_pid = -1;
 
@@ -1002,43 +1038,30 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
 
   for (int i = 0; i < count_cmd - 1; i++) {
     if (pipe(pipes[i]) == -1) {
-      for (int j = 0; j < i; j++) {
-        close(pipes[j][0]);
-        close(pipes[j][1]);
-      }
-      pipeline = NULL;
       perror("pipe");
+      close_pipeline_fds(pipes, count_cmd - 1);
+      ctx->pipeline = false;
       return -1;
     }
   }
 
   t_ast_n *exec = pipeline;
-  ctx->pipeline = pipeline;
   int i = 0;
   while (exec && i < count_cmd) {
 
     pid_t pid = fork();
     if (pid == -1) {
+      close_pipeline_fds(pipes, count_cmd - 1);
       return -1;
-    }
-
-    if (job->pgid == -1 && i == 0) {
-      job->pgid = pid;
     }
 
     if (pid == 0) {
 
       if (i == 0) {
 
-        if (!ctx->is_subshell) {
-          if (setpgid(0, job->pgid) < 0) {
-            if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-              perror("280: setpgid");
-              _exit(EXIT_FAILURE);
-            }
-          }
-        }
-
+        if (job->pgid == -1)
+          job->pgid = getpid();
+        child_join_pgrp(shell, job);
         if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
           perror("dup2");
         }
@@ -1055,15 +1078,10 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
         _exit(shell->last_exit_status);
       } else if (i == count_cmd - 1) {
 
-        if (!ctx->is_subshell) {
-          if (setpgid(0, job->pgid) < 0) {
-            if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-              perror("280: setpgid");
-              _exit(EXIT_FAILURE);
-            }
-          }
-        }
+        if (job->pgid == -1)
+          job->pgid = getpid();
 
+        child_join_pgrp(shell, job);
         if (dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
           perror("dup2");
         }
@@ -1079,15 +1097,10 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
         _exit(shell->last_exit_status);
       } else {
 
-        if (!ctx->is_subshell) {
-          if (setpgid(0, job->pgid) < 0) {
-            if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-              perror("280: setpgid");
-              _exit(EXIT_FAILURE);
-            }
-          }
-        }
+        if (job->pgid == -1)
+          job->pgid = getpid();
 
+        child_join_pgrp(shell, job);
         if (dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
           perror("dup2");
         }
@@ -1107,27 +1120,35 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
       }
     } else if (shell->job_control_flag) {
 
-      if (setpgid(pid, job->pgid) < 0) {
-        if (errno != EPERM && errno != EACCES && errno != ESRCH) {
-          perror("setpgid fail");
-          return -1;
-        }
+      if (job->pgid == -1 && i == 0) {
+        job->pgid = pid;
       }
 
       t_process *process = make_process(pid);
       if (!process) {
-        perror("process make fail");
+        perror("make process");
         cleanup_job_struct(job);
+        close_pipeline_fds(pipes, count_cmd - 1);
         return -1;
-      }
-      if (i == count_cmd - 1) {
-        job->last_pid = pid;
-        last_pid = pid;
       }
 
       add_process_to_job(job, process);
+
+      if (parent_place_child_pgrp(shell, job, pid) == -1) {
+        close_pipeline_fds(pipes, count_cmd - 1);
+        return -1;
+      }
     }
 
+    if (append_pid_pipeline(pid, ctx, &shell->arena) == -1) {
+      close_pipeline_fds(pipes, count_cmd - 1);
+      return -1;
+    }
+
+    if (i == count_cmd - 1) {
+      job->last_pid = pid;
+      last_pid = pid;
+    }
     exec = exec->right;
     i++;
   }
@@ -1137,7 +1158,6 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
     close(pipes[j][1]);
   }
 
-  ctx->pipeline = NULL;
   return last_pid;
 }
 
@@ -1217,10 +1237,12 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell) {
   } else if (!shell->job_control_flag) {
 
     /* builtins set shell exit status - return pid 0 */
-    if (lpid > 0) {
+    if (lpid > 0 && job->position == P_FOREGROUND) {
       int status;
       pid_t p;
-      while ((p = waitpid(-1, &status, 0)) > 0) {
+      for (size_t i = 0; i < ctx->pids_len; i++) {
+        pid_t pd = ctx->pipeline_pids[i];
+        p = waitpid(pd, &status, 0);
         if (p == lpid) {
           if (WIFEXITED(status))
             shell->last_exit_status = WEXITSTATUS(status);
@@ -1229,11 +1251,11 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell) {
         }
       }
     }
+  }
 
-    if (!ctx->is_subshell) {
-      del_job(shell, job->job_id, true);
-      job = NULL;
-    }
+  if (!ctx->is_subshell) {
+    del_job(shell, job->job_id, true);
+    job = NULL;
   }
 
   return WAIT_FINISHED;
@@ -1255,8 +1277,8 @@ static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell) {
   }
 
   if (pid == 0) {
-
-    setpgid(0, 0);
+    if (shell->job_control_flag)
+      setpgid(0, 0);
 
     shell->job_control_flag = 0;
     init_ch_sigtable(&(shell->shell_sigtable));
@@ -1272,7 +1294,6 @@ static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
     _exit(shell->last_exit_status);
   } else {
-
     if (job->pgid == -1)
       job->pgid = pid;
 
@@ -1496,7 +1517,8 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   if (shell->is_interactive) {
 
-    shell->pending_hds = (char **)arena_alloc(&shell->arena, INIT_HD_CAP);
+    shell->pending_hds =
+        (char **)arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(char *));
     shell->pending_hds_cap = INIT_HD_CAP;
     shell->pending_hds_len = 0;
 

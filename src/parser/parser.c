@@ -123,7 +123,6 @@ skip:
 static int scan_redirections(t_ast_n *node, t_token_stream *token_stream,
                              int start, int end, t_arena *a,
                              t_err_code *last_err) {
-
   node->io_redir =
       (t_io_redir **)arena_alloc(a, sizeof(t_io_redir *) * INITIAL_REDIR_LEN);
 

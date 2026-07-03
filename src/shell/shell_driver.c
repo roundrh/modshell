@@ -103,13 +103,10 @@ int main(int argc, char **argv) {
   make_argl(&shell_state, argc, argv);
 
   if (argc > 1) {
-
     init_ch_sigtable(&shell_state.shell_sigtable);
-    // init shell already disables this
-    shell_state.job_control_flag = 0;
 
     if (argc > 2) {
-      if (strcmp(argv[1], "-c") == 0) {
+      if (strcmp(argv[1], "-c") == 0 || strcmp(argv[1], "-lc") == 0) {
         t_err_code last_err;
         parse_and_execute(&(argv[2]), &shell_state, &shell_state.token_stream,
                           script, &last_err);
@@ -128,8 +125,7 @@ int main(int argc, char **argv) {
 
   while (1) {
     if (shell_state.is_interactive) {
-
-      if (shell_state.job_control_flag && sigchld_flag) {
+      if (sigchld_flag) {
         sigchld_flag = 0;
         reap_sigchld_jobs(&shell_state);
       }

@@ -54,7 +54,10 @@ typedef struct s_env_entry {
 
 typedef struct s_exec_ctx {
   t_job *subshell_job;
-  const t_ast_n *pipeline;
+  bool pipeline;
+  pid_t *pipeline_pids;
+  size_t pids_len;
+  size_t pids_cap;
   int fnest_d;
   bool flow;
   bool script;
