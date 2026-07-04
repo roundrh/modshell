@@ -108,6 +108,8 @@ void print_env(t_hashtable *env, bool exported_only, bool local_only) {
     while (node) {
       t_env_entry *entry = (t_env_entry *)node->value;
       if (entry && entry->val) {
+        if (entry->flags & ENV_READONLY)
+          printf("readonly\t");
         if (exported_only && entry->flags & ENV_EXPORTED)
           printf("%s=%s\n", node->key, entry->val);
         if (local_only && !(entry->flags & ENV_EXPORTED))
@@ -123,24 +125,23 @@ int add_to_env(t_shell *shell, const char *var, const char *val, bool local,
   if (!var || !val)
     return -1;
 
-  t_ht_node *existing = ht_find(&shell->env, var);
-  t_env_entry *entry;
-  t_env_entry *existing_entry = NULL;
-  if (existing)
-    existing_entry = (t_env_entry *)existing->value;
+  t_ht_node *node = ht_find(&shell->env, var);
+  t_env_entry *entry = node ? node->value : NULL;
 
-  if (existing && !(existing_entry->flags & ENV_READONLY)) {
-    entry = (t_env_entry *)existing->value;
+  if (entry) {
+    if (entry->flags & ENV_READONLY) {
+      fprintf(stderr, "readonly variable: %s\n", entry->name);
+      return -1;
+    }
     free(entry->val);
-  } else if (!existing) {
-    entry = (t_env_entry *)malloc(sizeof(t_env_entry));
+  } else {
+    entry = malloc(sizeof(*entry));
     if (!entry)
       return -1;
+
     entry->name = strdup(var);
     entry->flags = 0;
     ht_insert(&shell->env, var, entry, free_env_entry);
-  } else {
-    return -1;
   }
 
   entry->val = strdup(val);
@@ -154,8 +155,6 @@ int add_to_env(t_shell *shell, const char *var, const char *val, bool local,
   } else {
     entry->flags &= ~ENV_HAS_VINT;
   }
-  if (local)
-    entry->flags |= ENV_LOCAL;
 
   entry->local_depth = depth;
 

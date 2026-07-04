@@ -622,6 +622,8 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
                              char **argv) {
 
   t_exec_ctx *ctx = &shell->exec_ctx;
+  if (shell->is_interactive && !ctx->flow)
+    refresh_path_bins(shell);
 
   if (ctx->pipeline) {
     char **env = flatten_env(&shell->env, &shell->arena);
@@ -833,7 +835,8 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job) {
   } else if (job->position == P_FOREGROUND) {
     t_builtin *b = (t_builtin *)builtin_imp->value;
     job->last_exit_status = b->fn(node, shell, argv);
-    shell->last_exit_status = job->last_exit_status;
+    if (b->fn != eval_builtin)
+      shell->last_exit_status = job->last_exit_status;
   } else {
     return exec_bg_builtin(node, shell, job, builtin_imp, argv);
   }

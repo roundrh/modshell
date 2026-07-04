@@ -69,5 +69,9 @@ int break_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int continue_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int type_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int shopt_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int eval_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int readonly_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int command_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int hash_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H

@@ -285,8 +285,7 @@ static t_ast_n *parse_command(t_ast *ast, t_token_stream *ts, int start,
   t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
   if (!node) {
     *last_err = ERR_ALLOC;
-    perror("malloc");
-    exit(12);
+    return NULL;
   }
   init_ast_node(node);
   node->op_type = OP_SIMPLE;
@@ -441,8 +440,7 @@ static t_ast_n *parse_terminators(t_ast *ast, t_token_stream *ts, int start,
       t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
       if (!node) {
         *last_err = ERR_ALLOC;
-        perror("malloc");
-        exit(12);
+        return NULL;
       }
 
       init_ast_node(node);
@@ -534,8 +532,7 @@ static t_ast_n *parse_conditionals(t_ast *ast, t_token_stream *ts, int start,
     node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
     if (!node) {
       *last_err = ERR_ALLOC;
-      perror("malloc");
-      exit(12);
+      return NULL;
     }
     init_ast_node(node);
     node->op_type = cond_flag;
@@ -748,8 +745,10 @@ static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
-  if (!node)
-    goto fail;
+  if (!node) {
+    *last_err = ERR_ALLOC;
+    return NULL;
+  }
   init_ast_node(node);
   node->op_type = OP_IF;
 
@@ -770,10 +769,6 @@ static t_ast_n *parse_if(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   return node;
-
-fail:
-  perror("malloc");
-  exit(12);
 }
 
 static t_ast_n *parse_until(t_ast *ast, t_token_stream *ts, int start, int end,
@@ -807,8 +802,9 @@ static t_ast_n *parse_until(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
-  if (!node)
-    goto fail;
+  if (!node) {
+    return NULL;
+  }
   init_ast_node(node);
   node->op_type = OP_UNTIL;
 
@@ -821,11 +817,6 @@ static t_ast_n *parse_until(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   return node;
-
-fail:
-  *last_err = ERR_ALLOC;
-  perror("malloc");
-  exit(12);
 }
 
 static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
@@ -859,8 +850,9 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   t_ast_n *node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
-  if (!node)
-    goto fail;
+  if (!node) {
+    return NULL;
+  }
   init_ast_node(node);
   node->op_type = OP_WHILE;
 
@@ -873,11 +865,6 @@ static t_ast_n *parse_while(t_ast *ast, t_token_stream *ts, int start, int end,
   }
 
   return node;
-
-fail:
-  *last_err = ERR_ALLOC;
-  perror("malloc");
-  exit(12);
 }
 
 static t_ast_n *parse_for(t_ast *ast, t_token_stream *ts, int start, int end,
@@ -1040,8 +1027,10 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
   } else {
 
     node = (t_ast_n *)arena_alloc(a, sizeof(t_ast_n));
-    if (!node)
-      goto fail;
+    if (!node) {
+      perror("arena");
+      return NULL;
+    }
 
     init_ast_node(node);
     int redir_count =
@@ -1053,18 +1042,15 @@ static t_ast_n *parse_subshells(t_ast *ast, t_token_stream *ts, int start,
 
     node->sub_ast_root = parse_terminators(ast, ts, first_open_par_idx + 1,
                                            last_close_par_idx - 1, a, last_err);
-    if (!node->sub_ast_root)
-      goto fail;
+    if (!node->sub_ast_root) {
+      return NULL;
+    }
 
     node->left = NULL;
     node->right = NULL;
   }
 
   return node;
-
-fail:
-  perror("mem");
-  exit(12);
 }
 
 #ifdef DEBUG

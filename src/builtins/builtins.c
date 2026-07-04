@@ -205,8 +205,6 @@ int cd_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 }
 
 int local_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-  (void)node; // shut up compiler
-
   if (argv[1] == NULL) {
     print_env(&shell->env, false, true);
     return 0;
@@ -474,6 +472,158 @@ static void print_escaped(const char *s) {
   }
 }
 
+int shift_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+
+  int n = 1;
+
+  if (argv[1]) {
+    char *end;
+    long val = strtol(argv[1], &end, 10);
+
+    if (*end != '\0' || val < 0) {
+      fprintf(stderr, "shift: %s: missing operand\n", argv[1]);
+      return 1;
+    }
+
+    n = (int)val;
+  }
+
+  if (argv[2]) {
+    fprintf(stderr, "shift: too many arguments\n");
+    return 1;
+  }
+
+  if (n == 0)
+    return 0;
+
+  if (n > shell->argc) {
+    fprintf(stderr, "shift: must be <= $#\n");
+    return 1;
+  }
+
+  shell->argc -= n;
+
+  for (int i = 0; i < shell->argc; i++)
+    shell->argv[i] = shell->argv[i + n];
+
+  shell->argv[shell->argc] = NULL;
+
+  return 0;
+}
+
+static int set_var_flags(t_shell *shell, char **argv, unsigned char flags) {
+  if (argv[1] == NULL) {
+    return 0;
+  }
+
+  char *str = argv[1];
+  char *eq_ptr = strchr(str, '=');
+  char *var_name = NULL;
+  char *var_val = NULL;
+
+  if (eq_ptr == NULL) {
+    size_t name_len = strlen(str);
+    var_name = arena_alloc(&shell->arena, name_len + 1);
+    if (!var_name)
+      return -1;
+    memcpy(var_name, str, name_len + 1);
+
+    t_ht_node *nd = ht_find(&shell->env, var_name);
+    if (nd) {
+      t_env_entry *entry = (t_env_entry *)nd->value;
+      size_t val_len = strlen(entry->val);
+      var_val = arena_alloc(&shell->arena, val_len + 1);
+      if (!var_val)
+        return -1;
+      memcpy(var_val, entry->val, val_len + 1);
+
+      entry->flags = flags;
+    } else {
+      var_val = arena_alloc(&shell->arena, 1);
+      if (!var_val)
+        return -1;
+      var_val[0] = '\0';
+    }
+  } else {
+    size_t name_len = eq_ptr - str;
+    size_t val_len = strlen(eq_ptr + 1);
+
+    var_name = arena_alloc(&shell->arena, name_len + 1);
+    var_val = arena_alloc(&shell->arena, val_len + 1);
+    if (!var_name || !var_val)
+      return -1;
+
+    memcpy(var_name, str, name_len);
+    var_name[name_len] = '\0';
+    memcpy(var_val, eq_ptr + 1, val_len + 1);
+  }
+
+  if (add_to_env(shell, var_name, var_val, false, 0) == -1) {
+    return -1;
+  }
+
+  t_ht_node *n = ht_find(&shell->env, var_name);
+  if (n) {
+    t_env_entry *e = (t_env_entry *)n->value;
+    e->flags |= flags;
+  }
+
+  check_rehash(shell, var_name);
+  return 0;
+}
+
+int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+
+  unsigned char flags = 0;
+  flags |= ENV_EXPORTED;
+
+  int s = set_var_flags(shell, argv, flags);
+  return abs(s);
+}
+
+int readonly_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+
+  unsigned char flags = 0;
+  flags |= ENV_READONLY;
+
+  int s = set_var_flags(shell, argv, flags);
+  return abs(s);
+}
+
+int eval_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  size_t tot = 0;
+  for (size_t i = 1; argv[i]; i++) {
+    tot += (strlen(argv[i]) + 1);
+  }
+
+  char *buf = (char *)arena_alloc(&shell->arena, tot + 1);
+  if (!buf)
+    return ENOMEM;
+
+  char *p = buf;
+
+  for (size_t i = 1; argv[i]; i++) {
+    size_t len = strlen(argv[i]);
+    memcpy(p, argv[i], len);
+    p += len;
+
+    if (argv[i + 1]) {
+      *p = ' ';
+      p++;
+    }
+  }
+  *p = '\0';
+
+  t_token_stream vs;
+  t_err_code err;
+  parse_and_execute(&buf, shell, &vs, shell->script_fstream != NULL, &err);
+
+  return 0;
+}
+
 int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   (void)node;
   (void)shell;
@@ -528,6 +678,80 @@ int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
 int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
 int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 1; }
+
+int command_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+
+  t_exec_ctx *ctx = &shell->exec_ctx;
+
+  if (!argv || !argv[1])
+    return 0;
+
+  argv++;
+
+  t_ht_node *builtin_imp = ht_find(&shell->builtins, argv[0]);
+
+  if (builtin_imp && strcmp(builtin_imp->key, "exit") != 0)
+    shell->exflag = 0;
+
+  if (builtin_imp) {
+    t_builtin *b = builtin_imp->value;
+    int status = b->fn(node, shell, argv);
+
+    if (b->fn != eval_builtin)
+      shell->last_exit_status = status;
+
+    return status;
+  }
+
+  char **env = flatten_env(&shell->env, &shell->arena);
+  if (ctx->pipeline || ctx->is_subshell) {
+    if (strchr(argv[0], '/')) {
+      execve(argv[0], argv, env);
+    } else {
+      t_ht_node *bin = ht_find(&shell->bins, argv[0]);
+      if (bin)
+        execve(bin->value, argv, env);
+    }
+
+    fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
+    _exit(127);
+  }
+
+  pid_t pid = fork();
+  if (pid == -1) {
+    perror("fork");
+    return 1;
+  }
+
+  if (pid == 0) {
+    init_ch_sigtable(&shell->shell_sigtable);
+
+    if (strchr(argv[0], '/')) {
+      execve(argv[0], argv, env);
+    } else {
+      t_ht_node *bin = ht_find(&shell->bins, argv[0]);
+      if (bin)
+        execve(bin->value, argv, env);
+    }
+
+    fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
+    _exit(127);
+  }
+
+  int wstatus;
+  if (waitpid(pid, &wstatus, 0) == -1) {
+    perror("waitpid");
+    return 1;
+  }
+
+  if (WIFEXITED(wstatus))
+    shell->last_exit_status = WEXITSTATUS(wstatus);
+  else if (WIFSIGNALED(wstatus))
+    shell->last_exit_status = 128 + WTERMSIG(wstatus);
+
+  return shell->last_exit_status;
+}
 
 int set_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   if (argv[1] == NULL) {
@@ -715,67 +939,6 @@ int kill_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
-int export_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-  if (argv[1] == NULL) {
-    return 0;
-  }
-
-  char *str = argv[1];
-  char *eq_ptr = strchr(str, '=');
-  char *var_name = NULL;
-  char *var_val = NULL;
-
-  if (eq_ptr == NULL) {
-    size_t name_len = strlen(str);
-    var_name = arena_alloc(&shell->arena, name_len + 1);
-    if (!var_name)
-      return -1;
-    memcpy(var_name, str, name_len + 1);
-
-    t_ht_node *nd = ht_find(&shell->env, var_name);
-    if (nd) {
-      t_env_entry *entry = (t_env_entry *)nd->value;
-      size_t val_len = strlen(entry->val);
-      var_val = arena_alloc(&shell->arena, val_len + 1);
-      if (!var_val)
-        return -1;
-      memcpy(var_val, entry->val, val_len + 1);
-
-      entry->flags |= ENV_EXPORTED;
-    } else {
-      var_val = arena_alloc(&shell->arena, 1);
-      if (!var_val)
-        return -1;
-      var_val[0] = '\0';
-    }
-  } else {
-    size_t name_len = eq_ptr - str;
-    size_t val_len = strlen(eq_ptr + 1);
-
-    var_name = arena_alloc(&shell->arena, name_len + 1);
-    var_val = arena_alloc(&shell->arena, val_len + 1);
-    if (!var_name || !var_val)
-      return -1;
-
-    memcpy(var_name, str, name_len);
-    var_name[name_len] = '\0';
-    memcpy(var_val, eq_ptr + 1, val_len + 1);
-  }
-
-  if (add_to_env(shell, var_name, var_val, false, 0) == -1) {
-    return -1;
-  }
-
-  t_ht_node *n = ht_find(&shell->env, var_name);
-  if (n) {
-    t_env_entry *e = (t_env_entry *)n->value;
-    e->flags |= ENV_EXPORTED;
-  }
-
-  check_rehash(shell, var_name);
-  return 0;
-}
-
 int type_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   (void)node;
   if (!argv[1]) {
@@ -881,6 +1044,66 @@ int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
   check_rehash(shell, var_name);
   return 0;
+}
+
+static void print_hash(const char *key, void *value) {
+  printf("%s=%s\n", key, (char *)value);
+}
+
+int hash_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  (void)node;
+
+  if (!argv[1]) {
+    ht_print(&shell->bins, print_hash);
+    return (0);
+  }
+
+  if (strcmp(argv[1], "-r") == 0) {
+    ht_flush(&shell->bins, free);
+    refresh_path_bins(shell);
+    return (0);
+  }
+
+  if (strcmp(argv[1], "-t") == 0) {
+    int status = 0;
+
+    for (int i = 2; argv[i]; i++) {
+      t_ht_node *n = ht_find(&shell->bins, argv[i]);
+
+      if (!n) {
+        fprintf(stderr, "hash: %s: not found\n", argv[i]);
+        status = 1;
+        continue;
+      }
+
+      printf("%s\n", (char *)n->value);
+    }
+
+    return status;
+  }
+
+  if (strcmp(argv[1], "-d") == 0) {
+    int status = 0;
+
+    for (int i = 2; argv[i]; i++) {
+      if (ht_delete(&shell->bins, argv[i], free) != 0) {
+        fprintf(stderr, "hash: %s: not found\n", argv[i]);
+        status = 1;
+      }
+    }
+
+    return status;
+  }
+
+  int status = 0;
+  for (int i = 1; argv[i]; i++) {
+    if (!ht_find(&shell->bins, argv[i])) {
+      fprintf(stderr, "hash: %s: not found\n", argv[i]);
+      status = 1;
+    }
+  }
+
+  return status;
 }
 
 int rehash_builtin(t_ast_n *node, t_shell *shell, char **argv) {

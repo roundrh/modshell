@@ -118,74 +118,57 @@ static void load_history(t_shell *shell) {
  * built ins are split into forkable and unforkable, main use is to not run any
  * unforkable commands in a pipe.
  */
+typedef struct s_builtin_def {
+  const char *name;
+  int (*fn)(t_ast_n *, t_shell *, char **);
+} t_builtin_def;
+
 static int push_built_ins(t_shell *shell) {
 
-  if (!insert_builtin(&shell->builtins, "exit", exit_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "cd", cd_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "alias", alias_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "unalias", unalias_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "fg", fg_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "bg", bg_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "jobs", jobs_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "kill", kill_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "export", export_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "unset", unset_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "clear", clear_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "env", env_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "history", history_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "v", v_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "[", test_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "true", true_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "false", false_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "echo", echo_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "exec", exec_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "source", source_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, ".", source_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "read", read_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "pwd", pwd_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "builtin", builtin_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "rehash", rehash_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, ":", nop_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "set", set_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "local", local_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "break", break_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "continue", continue_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "return", return_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "type", type_builtin))
-    return -1;
-  if (!insert_builtin(&shell->builtins, "shopt", shopt_builtin))
-    return -1;
+  static const t_builtin_def builtins[] = {
+      {"exit", exit_builtin},
+      {"cd", cd_builtin},
+      {"alias", alias_builtin},
+      {"unalias", unalias_builtin},
+      {"fg", fg_builtin},
+      {"bg", bg_builtin},
+      {"jobs", jobs_builtin},
+      {"kill", kill_builtin},
+      {"export", export_builtin},
+      {"unset", unset_builtin},
+      {"clear", clear_builtin},
+      {"env", env_builtin},
+      {"history", history_builtin},
+      {"v", v_builtin},
+      {"[", test_builtin},
+      {"true", true_builtin},
+      {"false", false_builtin},
+      {"echo", echo_builtin},
+      {"exec", exec_builtin},
+      {"source", source_builtin},
+      {".", source_builtin},
+      {"read", read_builtin},
+      {"pwd", pwd_builtin},
+      {"builtin", builtin_builtin},
+      {"rehash", rehash_builtin},
+      {":", nop_builtin},
+      {"set", set_builtin},
+      {"local", local_builtin},
+      {"break", break_builtin},
+      {"continue", continue_builtin},
+      {"return", return_builtin},
+      {"type", type_builtin},
+      {"shopt", shopt_builtin},
+      {"eval", eval_builtin},
+      {"readonly", readonly_builtin},
+      {"command", command_builtin},
+      {"hash", hash_builtin},
+  };
+
+  for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); ++i) {
+    if (!insert_builtin(&shell->builtins, builtins[i].name, builtins[i].fn))
+      return -1;
+  }
 
   return 0;
 }
