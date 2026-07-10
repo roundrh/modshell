@@ -68,13 +68,5 @@ suggestion
 - Functions
 - msh -c "command"
 - Terminal state capture for stty/reset/... commands
-## TODO
-Ranked by priority:
-  - Add switch/case
-  - Fix inconsistent error paths (exit calls on ENOMEM must be an error return not exit)
-  - Change strdup calls in get_matches / tab_dbl pager pipeline to use arena (userinp.c)
-  - Finish set builtin
-  - Add PS1 and completion for multi-line input
-  - Add multi-line prompts
 ## License
 MIT

@@ -125,45 +125,46 @@ typedef struct s_builtin_def {
 
 static int push_built_ins(t_shell *shell) {
 
-  static const t_builtin_def builtins[] = {
-      {"exit", exit_builtin},
-      {"cd", cd_builtin},
-      {"alias", alias_builtin},
-      {"unalias", unalias_builtin},
-      {"fg", fg_builtin},
-      {"bg", bg_builtin},
-      {"jobs", jobs_builtin},
-      {"kill", kill_builtin},
-      {"export", export_builtin},
-      {"unset", unset_builtin},
-      {"clear", clear_builtin},
-      {"env", env_builtin},
-      {"history", history_builtin},
-      {"v", v_builtin},
-      {"[", test_builtin},
-      {"true", true_builtin},
-      {"false", false_builtin},
-      {"echo", echo_builtin},
-      {"exec", exec_builtin},
-      {"source", source_builtin},
-      {".", source_builtin},
-      {"read", read_builtin},
-      {"pwd", pwd_builtin},
-      {"builtin", builtin_builtin},
-      {"rehash", rehash_builtin},
-      {":", nop_builtin},
-      {"set", set_builtin},
-      {"local", local_builtin},
-      {"break", break_builtin},
-      {"continue", continue_builtin},
-      {"return", return_builtin},
-      {"type", type_builtin},
-      {"shopt", shopt_builtin},
-      {"eval", eval_builtin},
-      {"readonly", readonly_builtin},
-      {"command", command_builtin},
-      {"hash", hash_builtin},
-  };
+  static const t_builtin_def builtins[] = {{"exit", exit_builtin},
+                                           {"cd", cd_builtin},
+                                           {"alias", alias_builtin},
+                                           {"unalias", unalias_builtin},
+                                           {"fg", fg_builtin},
+                                           {"bg", bg_builtin},
+                                           {"jobs", jobs_builtin},
+                                           {"kill", kill_builtin},
+                                           {"export", export_builtin},
+                                           {"unset", unset_builtin},
+                                           {"clear", clear_builtin},
+                                           {"env", env_builtin},
+                                           {"history", history_builtin},
+                                           {"v", v_builtin},
+                                           {"[", test_builtin},
+                                           {"true", true_builtin},
+                                           {"false", false_builtin},
+                                           {"echo", echo_builtin},
+                                           {"exec", exec_builtin},
+                                           {"source", source_builtin},
+                                           {".", source_builtin},
+                                           {"read", read_builtin},
+                                           {"pwd", pwd_builtin},
+                                           {"builtin", builtin_builtin},
+                                           {"rehash", rehash_builtin},
+                                           {":", nop_builtin},
+                                           {"set", set_builtin},
+                                           {"local", local_builtin},
+                                           {"break", break_builtin},
+                                           {"continue", continue_builtin},
+                                           {"return", return_builtin},
+                                           {"type", type_builtin},
+                                           {"shopt", shopt_builtin},
+                                           {"eval", eval_builtin},
+                                           {"readonly", readonly_builtin},
+                                           {"command", command_builtin},
+                                           {"hash", hash_builtin},
+                                           {"times", times_builtin},
+                                           {"wait", wait_builtin},
+                                           {"trap", trap_builtin}};
 
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); ++i) {
     if (!insert_builtin(&shell->builtins, builtins[i].name, builtins[i].fn))
@@ -240,6 +241,8 @@ size_t visible_len(const char *s, int cols) {
 }
 
 int get_shell_prompt(t_shell *shell) {
+  if (getenv_local_ref(&shell->env, "PS1"))
+    return 0;
 
   if (shell->prompt)
     free(shell->prompt);
@@ -269,6 +272,8 @@ int get_shell_prompt(t_shell *shell) {
            "\033[1;37m%s@%s %s\033[0m:\033[0;37m%s\033[0m\033[1;37m$ \033[0m",
            user, hostname, dir, shell->sh_name);
   free(dir);
+  add_to_env(shell, "PS1", shell->prompt, false, 0);
+  add_to_env(shell, "PS2", "> ", false, 0);
 
   shell->prompt_len = visible_len(shell->prompt, shell->cols);
 
@@ -352,6 +357,11 @@ int init_env(t_shell *shell) {
  * @note mallocd env freed in shell_cleanup.h, called atexit()
  */
 int init_shell_state(t_shell *shell, bool script) {
+
+  for (size_t i = 0; i < NSIG; i++) {
+    shell->traps[i] = NULL;
+    sigs[i] = 0;
+  }
 
   shell->exflag = 0;
 
@@ -487,6 +497,8 @@ int init_shell_state(t_shell *shell, bool script) {
     else
       shell->shopts.render_autosgst = false;
   }
+
+  get_shell_prompt(shell);
 
   arena_reset(&shell->arena);
 

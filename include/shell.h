@@ -140,6 +140,8 @@ typedef struct shell_s {
 
   t_shopt shopts;
 
+  char *traps[NSIG];
+
   t_exec_ctx exec_ctx;
 } t_shell;
 

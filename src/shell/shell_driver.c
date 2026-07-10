@@ -78,11 +78,11 @@ void make_argl(t_shell *shell, int argc, char **argv) {
 }
 
 static int ign_sigint(t_shell_sigtable *sigtable) {
-  INIT_SIG(sigtable, sigint, SIG_IGN, 0, SIGINT);
+  INIT_SIG(sigtable, SIGINT, SIG_IGN, 0, SIGINT);
   return 0;
 }
 static int unign_sigint(t_shell_sigtable *sigtable) {
-  INIT_SIG(sigtable, sigint, sigint_handler, 0, SIGINT);
+  INIT_SIG(sigtable, SIGINT, sig_handler, 0, SIGINT);
   return 0;
 }
 
@@ -124,9 +124,11 @@ int main(int argc, char **argv) {
   setvbuf(stderr, NULL, _IONBF, 0);
 
   while (1) {
+    check_trap(&shell_state);
     if (shell_state.is_interactive) {
-      if (sigchld_flag) {
-        sigchld_flag = 0;
+
+      if (sigs[SIGCHLD]) {
+        sigs[SIGCHLD] = 0;
         reap_sigchld_jobs(&shell_state);
       }
 
@@ -138,9 +140,6 @@ int main(int argc, char **argv) {
       unrawify(&shell_state);
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[?25h", 6, cmd_line_buf);
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\033[5 q", 5, cmd_line_buf);
-
-      get_shell_prompt(&shell_state);
-      printf("%s", shell_state.prompt);
 
       rawify(&shell_state);
       unign_sigint(&shell_state.shell_sigtable);

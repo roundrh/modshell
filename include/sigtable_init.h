@@ -2,13 +2,12 @@
 #define SIGTABLE_INIT_H
 
 #include "sigstruct.h"
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
-extern volatile sig_atomic_t sigchld_flag;
-extern volatile sig_atomic_t sigint_flag;
-extern volatile sig_atomic_t sigtstp_flag;
-extern volatile sig_atomic_t sigwinch_flag;
+extern volatile sig_atomic_t sigs[NSIG];
+
 /**
  * @file sigtable_init.h
  * @brief Module handles the initialization of sigtable struct.
@@ -30,13 +29,14 @@ extern volatile sig_atomic_t sigwinch_flag;
  */
 #define INIT_SIG(sigtable, sig, handler, flags, sig_c)                         \
   do {                                                                         \
-    memset(&(sigtable->sig.newact), 0, sizeof(sigtable->sig.newact));          \
-    sigtable->sig.newact.sa_flags = flags;                                     \
-    sigemptyset(&(sigtable->sig.newact.sa_mask));                              \
-    sigtable->sig.newact.sa_handler = handler;                                 \
+    memset(&(sigtable->sigtable[sig].newact), 0,                               \
+           sizeof(sigtable->sigtable[sig].newact));                            \
+    sigtable->sigtable[sig].newact.sa_flags = flags;                           \
+    sigemptyset(&(sigtable->sigtable[sig].newact.sa_mask));                    \
+    sigtable->sigtable[sig].newact.sa_handler = handler;                       \
                                                                                \
-    if (sigaction(sig_c, &(sigtable->sig.newact), &(sigtable->sig.oldact)) ==  \
-        -1) {                                                                  \
+    if (sigaction(sig_c, &(sigtable->sigtable[sig].newact),                    \
+                  &(sigtable->sigtable[sig].oldact)) == -1) {                  \
       perror("sigaction");                                                     \
       return -1;                                                               \
     }                                                                          \
@@ -56,9 +56,6 @@ int init_pa_sigtable(t_shell_sigtable *sigtable);
 
 int init_ch_sigtable(t_shell_sigtable *sigtable);
 
-void sigchld_handler(int sig);
-void sigint_handler(int sig);
-void sigtstp_handler(int sig);
-void sigwinch_handler(int sig);
+void sig_handler(int sig);
 
 #endif // ! SIGTABLE_INIT_H

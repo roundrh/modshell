@@ -30,13 +30,7 @@ typedef struct sigtable_s {
  */
 typedef struct shell_sigtable_s {
 
-  t_sigtable sigint;
-  t_sigtable sigtstp;
-  t_sigtable sigchld;
-  t_sigtable sigttou;
-  t_sigtable sigttin;
-  t_sigtable sigquit;
-  t_sigtable sigwinch;
+  t_sigtable sigtable[NSIG];
 } t_shell_sigtable;
 
 #endif // ! SIGSTRUCT_H

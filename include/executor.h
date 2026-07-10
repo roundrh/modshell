@@ -52,6 +52,10 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
                       t_token_stream *token_stream, bool script,
                       t_err_code *last_err);
 
+void del_local_depth(size_t depth, t_hashtable *env);
+
+int check_trap(t_shell *shell);
+
 int reap_sigchld_jobs(t_shell *shell);
 
 #endif // ! EXECUTOR_H

@@ -1,6 +1,8 @@
 #include "userinp.h"
 #include "executor.h"
+#include "var_exp.h"
 #include <fcntl.h>
+#include <stdbool.h>
 #include <unistd.h>
 
 static size_t last_rows_drawn = 0;
@@ -129,6 +131,7 @@ static t_dllnode *search_history(t_shell *shell, char *cmd, size_t cmd_len,
 
 void redraw_cmd(t_shell *shell, char *cmd, size_t cmd_len, size_t cmd_idx,
                 t_dllnode **suggestion) {
+
   int rows, cols;
   get_term_size(&rows, &cols);
 
@@ -605,6 +608,12 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
   tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.curr_settings);
 }
 
+static inline bool isnewprompt(const char *nprmpt, const char *oprmpt) {
+  if (!nprmpt || !oprmpt)
+    return 1;
+  return strcmp(nprmpt, oprmpt) != 0;
+}
+
 /**
  * @brief reads user input into cmd
  * @return pointer to array of char, NULL on fail.
@@ -629,10 +638,16 @@ char *read_user_inp(t_shell *shell) {
   size_t cmd_len = 0;
   size_t cmd_idx = 0;
 
+  if (isnewprompt(getenv_local_ref(&shell->env, "PS1"), shell->prompt)) {
+    if (shell->prompt)
+      free(shell->prompt);
+    shell->prompt = strdup(getenv_local_ref(&shell->env, "PS1"));
+    shell->prompt_len = strlen(shell->prompt);
+  }
   bool tab = false;
   while (1) {
-    if (sigchld_flag) {
-      sigchld_flag = 0;
+    if (sigs[SIGCHLD]) {
+      sigs[SIGCHLD] = 0;
       printf("\n");
       reap_sigchld_jobs(shell);
     }
@@ -641,8 +656,8 @@ char *read_user_inp(t_shell *shell) {
 
     if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len, &shell->arena) == -1)
       return NULL;
-    if (sigwinch_flag) {
-      sigwinch_flag = 0;
+    if (sigs[SIGWINCH]) {
+      sigs[SIGWINCH] = 0;
       get_term_size(&shell->rows, &shell->cols);
       continue;
     }
@@ -650,11 +665,13 @@ char *read_user_inp(t_shell *shell) {
     char c = '\0';
     while (read(0, &c, 1) < 0) {
       if (errno == EINTR) {
-        if (sigwinch_flag) {
-          sigwinch_flag = 0;
+        check_trap(shell);
+
+        if (sigs[SIGWINCH]) {
+          sigs[SIGWINCH] = 0;
           continue;
-        } else if (sigint_flag) {
-          sigint_flag = 0;
+        } else if (sigs[SIGINT]) {
+          sigs[SIGINT] = 0;
           return NULL;
         }
         continue;
@@ -686,9 +703,11 @@ char *read_user_inp(t_shell *shell) {
       char seq_end[2] = {0};
 
       while (read(0, &seq_end, 2) < 0) {
+        check_trap(shell);
+
         if (errno == EINTR) {
-          if (sigwinch_flag) {
-            sigwinch_flag = 0;
+          if (sigs[SIGWINCH]) {
+            sigs[SIGWINCH] = 0;
             continue;
           }
           continue;

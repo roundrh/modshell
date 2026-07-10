@@ -6,6 +6,7 @@
 #include "lexer.h"
 #include "shell.h"
 #include "shell_init.h"
+#include <asm-generic/errno-base.h>
 #include <signal.h>
 
 #define DEFSIZE_PIDS 8
@@ -17,7 +18,37 @@
 
 typedef enum e_pgrp { PGPR_NONE = 0, PGRP_FATAL = -1, PGRP_INVAL = -2 } t_pgrp;
 
-static void del_local_depth(size_t depth, t_hashtable *env) {
+int check_trap(t_shell *shell) {
+  for (int i = 0; i < NSIG; i++) {
+    if (shell->traps[i] != NULL && sigs[i] == 1) {
+      t_exec_ctx tmp_ctx = shell->exec_ctx;
+      t_exec_ctx nctx = {.is_subshell = false,
+                         .subshell_job = NULL,
+                         .pipeline = NULL,
+                         .flow = false,
+                         .fnest_d = 0,
+                         .script = (shell->script_fstream != NULL),
+                         .continue_loop = false,
+                         .break_loop = false,
+                         .return_fun = false,
+                         .pipeline_pids = NULL,
+                         .pids_len = 0,
+                         .pids_cap = 0};
+      shell->exec_ctx = nctx;
+      t_err_code last_err;
+      sigs[i] = 0;
+      int stat =
+          parse_and_execute(&shell->traps[i], shell, &shell->token_stream,
+                            shell->script_fstream != NULL, &last_err);
+      shell->exec_ctx = tmp_ctx;
+      return stat;
+    }
+  }
+
+  return 1;
+}
+
+void del_local_depth(size_t depth, t_hashtable *env) {
   for (size_t i = 0; i < env->count; ++i) {
     t_ht_node *h = env->buckets[i];
     while (h) {
@@ -384,7 +415,7 @@ static void wait_for_job_slot(t_shell *shell) {
 
     reap_sigchld_jobs(shell);
 
-    if (sigint_flag || sigtstp_flag) {
+    if (sigs[SIGINT] || sigs[SIGTSTP]) {
       break;
     }
   }
@@ -408,7 +439,21 @@ int reap_sigchld_jobs(t_shell *shell) {
 
   int reaped = -1;
 
-  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
+  while (1) {
+    pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
+    if (pid < 0) {
+      if (errno == EINTR) {
+        check_trap(shell);
+        continue;
+      } else if (errno == ECHILD) {
+        break;
+      } else {
+        perror("waitpid");
+        break;
+      }
+    } else if (pid == 0)
+      break;
+
     reaped = 0;
 
     t_job *job = find_job_by_pid(shell, pid);
@@ -469,6 +514,7 @@ static t_wait_status wait_for_foreground_job(t_job *job, t_shell *shell) {
       if (errno == ECHILD) {
         break;
       } else if (errno == EINTR) {
+        check_trap(shell);
         continue;
       } else {
         perror("waitpid");
@@ -594,8 +640,21 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
     ctx->subshell_job = job;
     ctx->flow = false;
     exec_list(NULL, (t_ast_n *)fn->value, shell);
-    while (waitpid(-job->pgid, NULL, 0) > 0)
-      ;
+    pid_t p;
+    while (1) {
+      p = waitpid(-job->pgid, NULL, 0);
+      if (p == -1) {
+        if (errno == EINTR) {
+          check_trap(shell);
+          continue;
+        } else if (errno == ECHILD) {
+          break;
+        } else {
+          perror("waitpid");
+          break;
+        }
+      }
+    }
 
     _exit(shell->last_exit_status);
   } else if (shell->job_control_flag) {
@@ -622,8 +681,6 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
                              char **argv) {
 
   t_exec_ctx *ctx = &shell->exec_ctx;
-  if (shell->is_interactive && !ctx->flow)
-    refresh_path_bins(shell);
 
   if (ctx->pipeline) {
     char **env = flatten_env(&shell->env, &shell->arena);
@@ -631,9 +688,12 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
       execve(argv[0], argv, env);
     } else {
       t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
-      if (bin_node) {
-        execve(bin_node->value, argv, env);
+      if (!bin_node) {
+        refresh_path_bins(shell);
+        bin_node = ht_find(&shell->bins, argv[0]);
       }
+      if (bin_node)
+        execve(bin_node->value, argv, env);
     }
     fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
     _exit(127);
@@ -658,9 +718,12 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
       execve(argv[0], argv, env);
     } else {
       t_ht_node *bin_node = ht_find(&shell->bins, argv[0]);
-      if (bin_node) {
-        execve(bin_node->value, argv, env);
+      if (!bin_node) {
+        refresh_path_bins(shell);
+        bin_node = ht_find(&shell->bins, argv[0]);
       }
+      if (bin_node)
+        execve(bin_node->value, argv, env);
     }
 
     fprintf(stderr, "msh: command \"%s\" not found\n", argv[0]);
@@ -875,8 +938,21 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job) {
 
     exec_list(NULL, node->sub_ast_root, shell);
 
-    while (waitpid(-job->pgid, NULL, 0) > 0)
-      ;
+    pid_t p;
+    while (1) {
+      p = waitpid(-job->pgid, NULL, 0);
+      if (p == -1) {
+        if (errno == EINTR) {
+          check_trap(shell);
+          continue;
+        } else if (errno == ECHILD) {
+          break;
+        } else {
+          perror("waitpid");
+          break;
+        }
+      }
+    }
 
     _exit(shell->last_exit_status);
   } else if (shell->job_control_flag) {
@@ -934,7 +1010,8 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job) {
       append_pid_pipeline(pid, ctx, &shell->arena);
   } else if (node->op_type == OP_SUBSHELL) {
     pid = exec_subshell(node, shell, job);
-    append_pid_pipeline(pid, ctx, &shell->arena);
+    if (pid > 0)
+      append_pid_pipeline(pid, ctx, &shell->arena);
   }
 
   if (restore_io_flag)
@@ -1172,6 +1249,7 @@ static inline t_pgrp handle_tcsetpgrp(t_shell *shell, pid_t pgid) {
 
   while (tcsetpgrp(shell->tty_fd, pgid) == -1) {
     if (errno == EINTR) {
+      check_trap(shell);
       continue;
     } else if (errno == EPERM || errno == EINVAL)
       return PGRP_INVAL;
@@ -1237,9 +1315,9 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell) {
   } else if (shell->job_control_flag && job->pgid != -1) {
     if (!ctx->is_subshell)
       print_job_info(job);
+    usleep(10000);
     return WAIT_FINISHED;
   } else if (!shell->job_control_flag) {
-
     /* builtins set shell exit status - return pid 0 */
     if (lpid > 0 && job->position == P_FOREGROUND) {
       int status;
@@ -1247,12 +1325,27 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell) {
       for (size_t i = 0; i < ctx->pids_len; i++) {
         pid_t pd = ctx->pipeline_pids[i];
         p = waitpid(pd, &status, 0);
+        if (p == -1) {
+          if (errno == EINTR) {
+            check_trap(shell);
+          } else if (errno == ECHILD) {
+            break;
+          } else {
+            perror("waitpid");
+            return WAIT_ERROR;
+          }
+          i--;
+          continue;
+        }
+
         if (p == lpid) {
           if (WIFEXITED(status))
             shell->last_exit_status = WEXITSTATUS(status);
           else if (WIFSIGNALED(status))
             shell->last_exit_status = WTERMSIG(status) + 128;
         }
+
+        continue;
       }
     }
   }
@@ -1293,8 +1386,22 @@ static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell) {
     ctx->subshell_job = job;
 
     exec_list(cmd_buf, node, shell);
-    while (waitpid(-job->pgid, NULL, 0) > 0)
-      ;
+
+    pid_t p;
+    while (1) {
+      p = waitpid(-job->pgid, NULL, 0);
+      if (p == -1) {
+        if (errno == EINTR) {
+          check_trap(shell);
+          continue;
+        } else if (errno == ECHILD) {
+          break;
+        } else {
+          perror("waitpid");
+          break;
+        }
+      }
+    }
 
     _exit(shell->last_exit_status);
   } else {
@@ -1319,7 +1426,7 @@ static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
   if (!node)
     return 0;
-  if (sigint_flag || sigtstp_flag)
+  if (sigs[SIGINT] || sigs[SIGTSTP])
     return WAIT_INTERRUPTED;
 
   if (shell->exec_ctx.continue_loop && shell->exec_ctx.flow)
@@ -1384,7 +1491,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
     bool prev_flow = ctx->flow;
     ctx->flow = true;
-    while (!sigint_flag && !sigtstp_flag) {
+    while (1) {
       /* force reap when some larp decides to spam the job table */
       if (is_job_table_full(shell)) {
         wait_for_job_slot(shell);
@@ -1392,9 +1499,11 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
       t_wait_status wait;
       wait = exec_list(cmd_buf, node->left, shell);
-      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
-          wait == WAIT_STOPPED)
+      if (sigs[SIGINT] || sigs[SIGTSTP] || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED) {
+        check_trap(shell);
         break;
+      }
       if (shell->last_exit_status != 0)
         break;
 
@@ -1407,9 +1516,11 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
         shell->exec_ctx.break_loop = false;
         break;
       }
-      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
-          wait == WAIT_STOPPED)
+      if (sigs[SIGINT] || sigs[SIGTSTP] || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED) {
+        check_trap(shell);
         break;
+      }
     }
     ctx->flow = prev_flow;
 
@@ -1419,7 +1530,7 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
     bool prev_flow = ctx->flow;
     ctx->flow = true;
-    while (!sigint_flag && !sigtstp_flag) {
+    while (1) {
       /* force reap when some larp decides to spam the job table */
       if (is_job_table_full(shell)) {
         wait_for_job_slot(shell);
@@ -1427,16 +1538,20 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
       t_wait_status wait;
       wait = exec_list(cmd_buf, node->left, shell);
-      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
-          wait == WAIT_STOPPED)
+      if (sigs[SIGINT] || sigs[SIGTSTP] || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED) {
+        check_trap(shell);
         break;
+      }
       if (shell->last_exit_status == 0)
         break;
 
       wait = exec_list(cmd_buf, node->right, shell);
-      if (sigint_flag || sigtstp_flag || wait == WAIT_INTERRUPTED ||
-          wait == WAIT_STOPPED)
+      if (sigs[SIGINT] || sigs[SIGTSTP] || wait == WAIT_INTERRUPTED ||
+          wait == WAIT_STOPPED) {
+        check_trap(shell);
         break;
+      }
     }
     ctx->flow = prev_flow;
 
@@ -1464,8 +1579,10 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
         wait_for_job_slot(shell);
       }
 
-      if (sigint_flag || sigtstp_flag)
+      if (sigs[SIGINT] || sigs[SIGTSTP]) {
+        check_trap(shell);
         break;
+      }
 
       add_to_env(shell, var_name, expanded_items[i], false, 0);
       t_wait_status wait = exec_list(cmd_buf, node->sub_ast_root, shell);
@@ -1477,8 +1594,10 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
         shell->exec_ctx.break_loop = false;
         break;
       }
-      if (wait == WAIT_INTERRUPTED || wait == WAIT_STOPPED)
+      if (wait == WAIT_INTERRUPTED || wait == WAIT_STOPPED) {
+        check_trap(shell);
         break;
+      }
     }
     ctx->flow = prev_flow;
 
@@ -1538,7 +1657,7 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   if (!script) {
     sigemptyset(&sa_int.sa_mask);
-    sa_int.sa_handler = sigint_handler;
+    sa_int.sa_handler = sig_handler;
     sa_int.sa_flags = 0;
     sigaction(SIGINT, &sa_int, &osa_int);
 
@@ -1562,7 +1681,9 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   sigaction(SIGWINCH, &osa_winch, NULL);
   shell->ast.root = NULL;
 
-  sigint_flag = 0;
-  sigtstp_flag = 0;
+  shell->exec_ctx.pipeline_pids = NULL;
+
+  sigs[SIGINT] = 0;
+  sigs[SIGTSTP] = 0;
   return 0;
 }

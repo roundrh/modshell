@@ -70,6 +70,8 @@ extern char **environ;
 
 void refresh_path_bins(t_shell *shell);
 
+size_t visible_len(const char *s, int cols);
+
 void prompt_metrics(const char *s, int term_cols, size_t *rows, size_t *cols);
 
 int get_shell_prompt(t_shell *shell);

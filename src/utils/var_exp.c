@@ -156,6 +156,10 @@ int add_to_env(t_shell *shell, const char *var, const char *val, bool local,
     entry->flags &= ~ENV_HAS_VINT;
   }
 
+  if (local) {
+    entry->flags |= ENV_LOCAL;
+  }
+
   entry->local_depth = depth;
 
   return 0;

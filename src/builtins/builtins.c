@@ -5,11 +5,16 @@
 
 #include "builtins.h"
 #include "executor.h"
+#include "job_handler.h"
 #include "jobs.h"
 #include "shell.h"
 #include "shell_init.h"
+#include "sigstruct.h"
+#include "sigtable_init.h"
 #include "var_exp.h"
 #include <linux/limits.h>
+#include <stdlib.h>
+#include <sys/times.h>
 
 static void check_rehash(t_shell *shell, const char *var_name) {
   if (strcmp(var_name, "PATH") == 0) {
@@ -678,7 +683,131 @@ int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
 int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
 int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 1; }
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
+typedef struct s_sig_entry {
+  const char *long_name;
+  const char *short_name;
+  int num;
+} t_sig_entry;
+
+static const t_sig_entry g_sig_table[] = {
+    {"EXIT", NULL, 0},
+    {"SIGHUP", "HUP", SIGHUP},
+    {"SIGINT", "INT", SIGINT},
+    {"SIGQUIT", "QUIT", SIGQUIT},
+    {"SIGILL", "ILL", SIGILL},
+    {"SIGTRAP", "TRAP", SIGTRAP},
+    {"SIGABRT", "ABRT", SIGABRT},
+    {"SIGBUS", "BUS", SIGBUS},
+    {"SIGFPE", "FPE", SIGFPE},
+    {"SIGKILL", "KILL", SIGKILL},
+    {"SIGUSR1", "USR1", SIGUSR1},
+    {"SIGSEGV", "SEGV", SIGSEGV},
+    {"SIGUSR2", "USR2", SIGUSR2},
+    {"SIGPIPE", "PIPE", SIGPIPE},
+    {"SIGALRM", "ALRM", SIGALRM},
+    {"SIGTERM", "TERM", SIGTERM},
+#ifdef SIGSTKFLT
+    {"SIGSTKFLT", "STKFLT", SIGSTKFLT},
+#endif
+    {"SIGCHLD", "CHLD", SIGCHLD},
+    {"SIGCONT", "CONT", SIGCONT},
+    {"SIGSTOP", "STOP", SIGSTOP},
+    {"SIGTSTP", "TSTP", SIGTSTP},
+    {"SIGTTIN", "TTIN", SIGTTIN},
+    {"SIGTTOU", "TTOU", SIGTTOU},
+    {"SIGURG", "URG", SIGURG},
+    {"SIGXCPU", "XCPU", SIGXCPU},
+    {"SIGXFSZ", "XFSZ", SIGXFSZ},
+    {"SIGVTALRM", "VTALRM", SIGVTALRM},
+    {"SIGPROF", "PROF", SIGPROF},
+    {"SIGWINCH", "WINCH", SIGWINCH},
+#if defined(SIGPOLL)
+    {"SIGPOLL", "POLL", SIGPOLL},
+#elif defined(SIGIO)
+    {"SIGIO", "IO", SIGIO},
+#endif
+#ifdef SIGPWR
+    {"SIGPWR", "PWR", SIGPWR}, /* Linux only */
+#endif
+    {"SIGSYS", "SYS", SIGSYS},
+#ifdef SIGEMT
+    {"SIGEMT", "EMT", SIGEMT}, /* BSD/macOS only */
+#endif
+};
+
+static int get_sig_num(char *str) {
+  size_t i;
+  size_t n;
+  char numbuf[16];
+
+  if (str == NULL)
+    return (-1);
+  n = sizeof(g_sig_table) / sizeof(g_sig_table[0]);
+  i = 0;
+  while (i < n) {
+    if (strcmp(str, g_sig_table[i].long_name) == 0)
+      return (g_sig_table[i].num);
+    if (g_sig_table[i].short_name &&
+        strcmp(str, g_sig_table[i].short_name) == 0)
+      return (g_sig_table[i].num);
+    snprintf(numbuf, sizeof(numbuf), "%d", g_sig_table[i].num);
+    if (strcmp(str, numbuf) == 0)
+      return (g_sig_table[i].num);
+    i++;
+  }
+  return (-1);
+}
+
+int trap_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  int sig;
+  char *old_action;
+  char *new_action;
+  t_shell_sigtable *sigtable;
+
+  (void)node;
+  if (argv[1] == NULL || argv[2] == NULL)
+    return 1;
+  sig = get_sig_num(argv[2]);
+  if (sig == -1)
+    return 1;
+  if (sig == SIGKILL || sig == SIGSTOP) {
+    fprintf(stderr, "trap: %s: cannot trap this signal\n", argv[2]);
+    return 1;
+  }
+  sigtable = &shell->shell_sigtable;
+  if (strcmp(argv[1], "-") == 0) {
+    old_action = shell->traps[sig];
+    shell->traps[sig] = NULL;
+    free(old_action);
+    if (sig == SIGINT)
+      INIT_SIG(sigtable, SIGINT, SIG_IGN, 0, SIGINT);
+    else if (sig == SIGQUIT)
+      INIT_SIG(sigtable, SIGQUIT, SIG_IGN, 0, SIGQUIT);
+    else if (sig != 0)
+      INIT_SIG(sigtable, sig, SIG_DFL, 0, sig);
+    return 0;
+  }
+  if (sig != 0)
+    INIT_SIG(sigtable, sig, sig_handler, 0, sig);
+  size_t newact_len = strlen(argv[1]);
+  new_action = malloc(newact_len + 1);
+  if (!new_action) {
+    perror("malloc");
+    return -1;
+  }
+  memcpy(new_action, argv[1], newact_len + 1);
+
+  old_action = shell->traps[sig];
+  shell->traps[sig] = new_action;
+  free(old_action);
+
+  return 0;
+}
 int command_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   (void)node;
 
@@ -1013,6 +1142,7 @@ int continue_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   shell->last_exit_status = 0;
   return 0;
 }
+
 int return_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   shell->exec_ctx.return_fun = true;
   if (argv[1]) {
@@ -1046,10 +1176,69 @@ int v_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
+int wait_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+
+  int status;
+  pid_t pid;
+  int had_children = 0;
+  while (1) {
+    pid = waitpid(-1, &status, 0);
+    if (pid < 0) {
+      if (errno == EINTR) {
+        if (sigs[SIGINT])
+          break;
+        continue;
+      }
+      break;
+    }
+    if (shell->job_control_flag) {
+      t_job *job = find_job_by_pid(shell, pid);
+      t_process *proc = find_process_in_job(job, pid);
+      if (WIFEXITED(status) || WIFSIGNALED(status)) {
+        proc->completed = 1;
+        proc->stopped = 0;
+        proc->running = 0;
+      }
+
+      if (is_job_completed(job)) {
+        job->state = S_COMPLETED;
+        print_job_info(job);
+        if (job->depth > 0)
+          del_local_depth(job->depth, &shell->env);
+      }
+    } else {
+      shell->last_exit_status = WEXITSTATUS(status);
+    }
+  }
+  (void)node;
+  (void)argv;
+
+  return (had_children ? 0 : 127);
+}
+
+int times_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+
+  struct tms buf;
+  long ticks = sysconf(_SC_CLK_TCK);
+
+  if (ticks <= 0)
+    return 1;
+
+  if (times(&buf) == (clock_t)-1)
+    return 1;
+
+  printf("%.6f %.6f\n", (double)buf.tms_utime / ticks,
+         (double)buf.tms_stime / ticks);
+
+  printf("%.6f %.6f\n", (double)buf.tms_cutime / ticks,
+         (double)buf.tms_cstime / ticks);
+
+  return 0;
+}
+
 static void print_hash(const char *key, void *value) {
   printf("%s=%s\n", key, (char *)value);
 }
-
 int hash_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   (void)node;
 
@@ -1178,7 +1367,7 @@ int unalias_builtin(t_ast_n *node, t_shell *shell, char **argv) {
     ht_flush(&shell->aliases, free_alias);
     return 0;
   }
-  if (ht_delete(&(shell->aliases), argv[1], NULL) == -1) {
+  if (ht_delete(&(shell->aliases), argv[1], free_alias) == -1) {
     printf("\nmsh: no such alias '%s'", argv[1]);
   }
 
@@ -1192,6 +1381,8 @@ int unalias_builtin(t_ast_n *node, t_shell *shell, char **argv) {
  * @return Never returns (calls exit())
  */
 int exit_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  sigs[0] = 1;
+  check_trap(shell);
 
   int exit_status = 0;
   if (argv && argv[1] != NULL) {

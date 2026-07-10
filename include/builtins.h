@@ -73,5 +73,8 @@ int eval_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int readonly_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int command_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int hash_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int times_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int wait_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int trap_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H
