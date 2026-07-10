@@ -521,6 +521,7 @@ t_err_type expand_args(t_shell *shell, char **buf, size_t *cap, const char **p,
     char f[12];
     snprintf(f, sizeof(f), "%d", shell->argc - 1);
     append_to_buf(buf, cap, k, f, a);
+    (*p)++;
   } else if (isdigit(**p)) {
     int idx = **p - '0';
     if (idx < shell->argc)

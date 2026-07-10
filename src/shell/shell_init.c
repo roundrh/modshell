@@ -164,7 +164,8 @@ static int push_built_ins(t_shell *shell) {
                                            {"hash", hash_builtin},
                                            {"times", times_builtin},
                                            {"wait", wait_builtin},
-                                           {"trap", trap_builtin}};
+                                           {"trap", trap_builtin},
+                                           {"shift", shift_builtin}};
 
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); ++i) {
     if (!insert_builtin(&shell->builtins, builtins[i].name, builtins[i].fn))
