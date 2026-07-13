@@ -101,6 +101,7 @@ typedef struct shell_s {
   char **argv;
   const char *path;
   char *prompt;
+  int prompt_rows;
   char *sh_name;
 
   bool exflag;

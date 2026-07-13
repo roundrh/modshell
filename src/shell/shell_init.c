@@ -175,70 +175,156 @@ static int push_built_ins(t_shell *shell) {
   return 0;
 }
 
-static int replace_home_dir(char **buf) {
-
-  if (strncmp(*buf, "/home/", 6) != 0)
+int replace_home_dir(char **buf, const char *home) {
+  if (!home)
+    return 0;
+  char *pos = strstr(*buf, home);
+  if (!pos)
     return -1;
 
-  char *replacement = strdup(*buf);
-  if (!replacement) {
-    perror("115: strdup");
-    return -1;
-  }
+  size_t home_len = strlen(home);
 
-  char *bufbuf = malloc(PATH_MAX);
-  if (!bufbuf) {
-    perror("121: malloc");
-    free(replacement);
-    return -1;
-  }
-  bufbuf[0] = '~';
-  bufbuf[1] = '\0';
+  memmove(pos + 1, pos + home_len, strlen(pos + home_len) + 1);
 
-  char *part = strtok(replacement, "/");
-  part = strtok(NULL, "/");
-
-  while ((part = strtok(NULL, "/")) != NULL) {
-    strcat(bufbuf, "/");
-    strcat(bufbuf, part);
-  }
-  for (int i = 0; i < strlen(*buf); i++)
-    (*buf)[i] = '\0'; ///< Clear buf
-  free(*buf);
-  *buf = strdup(bufbuf);
-  free(bufbuf);
-  free(replacement);
+  *pos = '~';
 
   return 0;
 }
 
-size_t visible_len(const char *s, int cols) {
+size_t visible_len(const char *s, int cols, int *rows) {
   size_t len = 0;
   size_t col = 0;
-  const char *p = s;
 
-  while (*p) {
-    if (*p == '\033' && *(p + 1) == '[') {
-      p += 2;
-      while (*p && !((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')))
-        p++;
-      if (*p)
-        p++;
-    } else if (*p == '\n') {
-      if (cols > 0 && col < (size_t)cols)
+  if (rows)
+    *rows = 1;
+
+  while (*s) {
+    if (*s == '\033' && *(s + 1) == '[') {
+      s += 2;
+      while (*s && !((*s >= 'A' && *s <= 'Z') || (*s >= 'a' && *s <= 'z')))
+        s++;
+      if (*s)
+        s++;
+      continue;
+    }
+
+    if (*s == '\n') {
+      if (cols > 0 && col)
         len += cols - col;
+
       col = 0;
-      p++;
-    } else {
+      if (rows)
+        (*rows)++;
+      s++;
+      continue;
+    }
+
+    unsigned char c = (unsigned char)*s;
+
+    if ((c & 0xC0) != 0x80) {
       len++;
       col++;
-      if (cols > 0 && col == (size_t)cols)
+
+      if (cols > 0 && col == (size_t)cols) {
         col = 0;
-      p++;
+        if (rows)
+          (*rows)++;
+      }
     }
+
+    s++;
   }
 
   return len;
+}
+
+char *parse_prompt(const char *src) {
+  size_t len = strlen(src);
+  char *dst = malloc(len + 1);
+  if (!dst)
+    return NULL;
+
+  const char *s = src;
+  char *d = dst;
+
+  while (*s) {
+    if (*s != '\\') {
+      *d++ = *s++;
+      continue;
+    }
+
+    s++;
+
+    switch (*s) {
+    case 'a':
+      *d++ = '\a';
+      s++;
+      break;
+    case 'b':
+      *d++ = '\b';
+      s++;
+      break;
+    case 'e':
+      *d++ = '\033';
+      s++;
+      break;
+    case 'f':
+      *d++ = '\f';
+      s++;
+      break;
+    case 'n':
+      *d++ = '\n';
+      s++;
+      break;
+    case 'r':
+      *d++ = '\r';
+      s++;
+      break;
+    case 't':
+      *d++ = '\t';
+      s++;
+      break;
+    case 'v':
+      *d++ = '\v';
+      s++;
+      break;
+    case '\\':
+      *d++ = '\\';
+      s++;
+      break;
+    case '\'':
+      *d++ = '\'';
+      s++;
+      break;
+    case '"':
+      *d++ = '"';
+      s++;
+      break;
+
+    case '0': {
+      int value = 0;
+      int count = 0;
+
+      while (count < 3 && *s >= '0' && *s <= '7') {
+        value = (value << 3) + (*s - '0');
+        s++;
+        count++;
+      }
+
+      *d++ = (char)value;
+      break;
+    }
+
+    default:
+      *d++ = '\\';
+      if (*s)
+        *d++ = *s++;
+      break;
+    }
+  }
+
+  *d = '\0';
+  return dst;
 }
 
 int get_shell_prompt(t_shell *shell) {
@@ -254,13 +340,16 @@ int get_shell_prompt(t_shell *shell) {
     return -1;
   } else {
     hostname[sizeof(hostname) - 1] = '\0';
+    add_to_env(shell, "HOST", hostname, false, 0);
   }
+
   char *dir = getcwd(NULL, 0);
   if (!dir) {
     perror("getcwd");
     return -1;
   }
-  replace_home_dir(&dir);
+
+  ;
   char *user = getenv("USER");
   size_t prompt_cap = strlen(dir) + strlen(user) + strlen(hostname) + 64;
   shell->prompt = (char *)malloc(prompt_cap);
@@ -276,7 +365,10 @@ int get_shell_prompt(t_shell *shell) {
   add_to_env(shell, "PS1", shell->prompt, false, 0);
   add_to_env(shell, "PS2", "> ", false, 0);
 
-  shell->prompt_len = visible_len(shell->prompt, shell->cols);
+  replace_home_dir(&shell->prompt, getenv("HOME"));
+
+  shell->prompt_len =
+      visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
 
   return 0;
 }
@@ -422,7 +514,6 @@ int init_shell_state(t_shell *shell, bool script) {
       }
     }
   }
-
   shell->job_table =
       (t_job **)malloc(sizeof(t_job *) * INITIAL_JOB_TABLE_LENGTH);
   if (shell->job_table == NULL) {
@@ -456,6 +547,8 @@ int init_shell_state(t_shell *shell, bool script) {
   if (init_env(shell) == -1) {
     return -1;
   }
+
+  get_shell_prompt(shell);
 
   shell->path = getenv_local_ref(&shell->env, "PATH");
   if (shell->path) {
@@ -498,8 +591,6 @@ int init_shell_state(t_shell *shell, bool script) {
     else
       shell->shopts.render_autosgst = false;
   }
-
-  get_shell_prompt(shell);
 
   arena_reset(&shell->arena);
 

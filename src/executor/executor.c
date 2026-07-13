@@ -10,6 +10,7 @@
 #include <signal.h>
 
 #define DEFSIZE_PIDS 8
+#define NO_TRAP 256
 
 /**
  * @file executor.c
@@ -36,7 +37,8 @@ int check_trap(t_shell *shell) {
                          .pids_cap = 0};
       shell->exec_ctx = nctx;
       t_err_code last_err;
-      sigs[i] = 0;
+      if (i != SIGWINCH && i != SIGCHLD)
+        sigs[i] = 0;
       int stat =
           parse_and_execute(&shell->traps[i], shell, &shell->token_stream,
                             shell->script_fstream != NULL, &last_err);
@@ -45,7 +47,7 @@ int check_trap(t_shell *shell) {
     }
   }
 
-  return 1;
+  return NO_TRAP;
 }
 
 void del_local_depth(size_t depth, t_hashtable *env) {

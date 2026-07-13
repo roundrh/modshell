@@ -18,15 +18,30 @@ typedef struct s_completions {
  * @brief contains implementation of functions to read user input
  */
 
+static int realloc_cmd_arr(char ***cmd_arr, size_t *cap, t_arena *arena) {
+  size_t new_cap = (*cap) * BUF_GROWTH_FACTOR;
+
+  char **new_arr = arena_alloc(arena, new_cap * sizeof(char *));
+
+  if (!new_arr)
+    return -1;
+
+  memcpy(new_arr, *cmd_arr, (*cap) * sizeof(char *));
+
+  memset(new_arr + *cap, 0, (new_cap - *cap) * sizeof(char *));
+
+  *cmd_arr = new_arr;
+  *cap = new_cap;
+
+  return 0;
+}
+
 int handle_write_fail(int fd, const char *buf, size_t len, char *buffer_ptr) {
 
   ssize_t write_ret;
-
   while ((write_ret = write(fd, buf, len)) == -1) {
     if (errno == EINTR)
       continue;
-    if (errno == EPIPE)
-      return -1;
     perror("readinp fail: write fatal");
     return -1;
   }
@@ -614,6 +629,25 @@ static inline bool isnewprompt(const char *nprmpt, const char *oprmpt) {
   return strcmp(nprmpt, oprmpt) != 0;
 }
 
+static int use_ps2(t_shell *shell) {
+  if (shell->prompt)
+    free(shell->prompt);
+
+  const char *p = getenv_local_ref(&shell->env, "PS2");
+  shell->prompt = parse_prompt(p);
+  if (!shell->prompt) {
+    shell->prompt = strdup("> ");
+    shell->prompt_len = 2;
+    return 0;
+  }
+  get_term_size(&shell->rows, &shell->cols);
+  shell->prompt_len =
+      visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
+  return 0;
+}
+
+#define INIT_CMDS_ARR 8
+
 /**
  * @brief reads user input into cmd
  * @return pointer to array of char, NULL on fail.
@@ -632,24 +666,42 @@ char *read_user_inp(t_shell *shell) {
   size_t tab_rws = 0;
 
   size_t cmd_cap = INITIAL_COMMAND_LENGTH;
-  char *cmd = (char *)arena_alloc(&shell->arena, INITIAL_COMMAND_LENGTH);
+  char **cmd_arr =
+      (char **)arena_alloc(&shell->arena, INIT_CMDS_ARR * sizeof(char *));
+  for (int i = 0; i < INIT_CMDS_ARR; i++)
+    cmd_arr[i] = NULL;
+
+  cmd_arr[0] = (char *)arena_alloc(&shell->arena, INITIAL_COMMAND_LENGTH);
+  size_t cmd_arr_cap = INIT_CMDS_ARR;
+
+  char *cmd = cmd_arr[0];
   cmd[0] = '\0';
 
   size_t cmd_len = 0;
   size_t cmd_idx = 0;
+  size_t lines_idx = 0;
+  size_t lines_used = 1;
+
+  size_t tot_len = 0;
 
   if (isnewprompt(getenv_local_ref(&shell->env, "PS1"), shell->prompt)) {
     if (shell->prompt)
       free(shell->prompt);
-    shell->prompt = strdup(getenv_local_ref(&shell->env, "PS1"));
-    shell->prompt_len = strlen(shell->prompt);
+    const char *raw = getenv_local_ref(&shell->env, "PS1");
+    shell->prompt = parse_prompt(raw);
+    replace_home_dir(&shell->prompt, getenv_local_ref(&shell->env, "HOME"));
+    shell->prompt_len =
+        visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
   }
+
   bool tab = false;
   while (1) {
+
     if (sigs[SIGCHLD]) {
       sigs[SIGCHLD] = 0;
       printf("\n");
       reap_sigchld_jobs(shell);
+      last_rows_drawn = 0;
     }
 
     redraw_cmd(shell, cmd, cmd_len, cmd_idx, &suggestion_node);
@@ -659,32 +711,62 @@ char *read_user_inp(t_shell *shell) {
     if (sigs[SIGWINCH]) {
       sigs[SIGWINCH] = 0;
       get_term_size(&shell->rows, &shell->cols);
+      shell->prompt_len =
+          visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
       continue;
     }
 
     char c = '\0';
     while (read(0, &c, 1) < 0) {
       if (errno == EINTR) {
-        check_trap(shell);
+        if (check_trap(shell) != 256)
+          last_rows_drawn = 0;
 
         if (sigs[SIGWINCH]) {
           sigs[SIGWINCH] = 0;
+          get_term_size(&shell->rows, &shell->cols);
+          shell->prompt_len =
+              visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
           continue;
         } else if (sigs[SIGINT]) {
           sigs[SIGINT] = 0;
           return NULL;
         }
+
         continue;
       } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
         continue;
       } else {
+        perror("read");
         return NULL;
       }
+    }
+    if ((c == '\n' || c == '\r') && cmd_idx > 0 && cmd[cmd_idx - 1] == '\\') {
+      if (lines_used == cmd_arr_cap) {
+        if (realloc_cmd_arr(&cmd_arr, &cmd_arr_cap, &shell->arena) == -1)
+          return NULL;
+      }
+
+      lines_idx++;
+      lines_used++;
+
+      cmd_arr[lines_idx] = arena_alloc(&shell->arena, INITIAL_COMMAND_LENGTH);
+      cmd_arr[lines_idx][0] = '\0';
+      cmd = cmd_arr[lines_idx];
+      cmd_cap = INITIAL_COMMAND_LENGTH;
+      tot_len += cmd_len;
+      cmd_len = 0;
+      cmd_idx = 0;
+
+      use_ps2(shell);
+      last_rows_drawn = 0;
+      tty_write(STDOUT_FILENO, "\n");
+      continue;
     }
 
     if (c == '\t' && !tab) {
       tab_rws = tab_sngl(cmd, &cmd_len, &cmd_idx, shell);
-      if (tab_rws != -1 && tab_rws == 0) {
+      if (tab_rws == 0) {
         tab = false;
         continue;
       } else {
@@ -703,11 +785,14 @@ char *read_user_inp(t_shell *shell) {
       char seq_end[2] = {0};
 
       while (read(0, &seq_end, 2) < 0) {
-        check_trap(shell);
-
         if (errno == EINTR) {
+          if (check_trap(shell) != 256)
+            last_rows_drawn = 0;
           if (sigs[SIGWINCH]) {
             sigs[SIGWINCH] = 0;
+            get_term_size(&shell->rows, &shell->cols);
+            shell->prompt_len =
+                visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
             continue;
           }
           continue;
@@ -826,5 +911,23 @@ char *read_user_inp(t_shell *shell) {
     }
   }
 
-  return cmd;
+  tot_len += cmd_len;
+
+  char *tot = (char *)arena_alloc(&shell->arena, tot_len + 1);
+  size_t k = 0;
+  for (size_t i = 0; i < lines_used; i++) {
+
+    size_t len = strlen(cmd_arr[i]);
+
+    if (i != lines_used - 1 && len && cmd_arr[i][len - 1] == '\\')
+      len--;
+
+    memcpy(tot + k, cmd_arr[i], len);
+
+    k += len;
+  }
+
+  tot[k] = '\0';
+
+  return tot;
 }
