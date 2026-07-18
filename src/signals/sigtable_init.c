@@ -21,7 +21,7 @@ int init_pa_sigtable(t_shell_sigtable *sigtable) {
   INIT_SIG(sigtable, SIGTSTP, SIG_IGN, 0, SIGTSTP);
   INIT_SIG(sigtable, SIGTTOU, SIG_IGN, 0, SIGTTOU);
   INIT_SIG(sigtable, SIGTTIN, SIG_IGN, 0, SIGTTIN);
-  INIT_SIG(sigtable, SIGCHLD, sig_handler, SA_RESTART | SA_NOCLDSTOP, SIGCHLD);
+  INIT_SIG(sigtable, SIGCHLD, sig_handler, SA_NOCLDSTOP, SIGCHLD);
   INIT_SIG(sigtable, SIGWINCH, sig_handler, 0, SIGWINCH);
 
   return 0;

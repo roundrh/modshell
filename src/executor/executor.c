@@ -512,7 +512,6 @@ int reap_sigchld_jobs(t_shell *shell) {
   }
 
   del_completed_jobs(shell);
-
   return reaped;
 }
 

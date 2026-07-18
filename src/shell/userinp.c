@@ -696,14 +696,6 @@ char *read_user_inp(t_shell *shell) {
 
   bool tab = false;
   while (1) {
-
-    if (sigs[SIGCHLD]) {
-      sigs[SIGCHLD] = 0;
-      printf("\n");
-      reap_sigchld_jobs(shell);
-      last_rows_drawn = 0;
-    }
-
     redraw_cmd(shell, cmd, cmd_len, cmd_idx, &suggestion_node);
 
     if (handle_realloc_buf(&cmd, &cmd_cap, &cmd_len, &shell->arena) == -1)
@@ -717,7 +709,7 @@ char *read_user_inp(t_shell *shell) {
     }
 
     char c = '\0';
-    while (read(0, &c, 1) < 0) {
+    while (read(STDIN_FILENO, &c, 1) < 0) {
       if (errno == EINTR) {
         if (check_trap(shell) != 256)
           last_rows_drawn = 0;
@@ -727,12 +719,16 @@ char *read_user_inp(t_shell *shell) {
           get_term_size(&shell->rows, &shell->cols);
           shell->prompt_len =
               visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
-          continue;
         } else if (sigs[SIGINT]) {
           sigs[SIGINT] = 0;
           return NULL;
+        } else if (sigs[SIGCHLD]) {
+          sigs[SIGCHLD] = 0;
+          printf("\n");
+          reap_sigchld_jobs(shell);
+          last_rows_drawn = 0;
+          break;
         }
-
         continue;
       } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
         continue;
