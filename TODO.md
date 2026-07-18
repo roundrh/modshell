@@ -5,6 +5,7 @@ Implement built-in:
 Implement feature:
   - switch-case
   - vi mode line editing
+  - add break x flag to break multiple loops out
 Fix:
   - Stop IFS Splitting on escaped spaces
   - Switch to on-demand hashing rather than aggressively hashing PATH

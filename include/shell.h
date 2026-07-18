@@ -22,28 +22,6 @@
 #define ENV_HAS_VINT (1 << 2)
 #define ENV_LOCAL (1 << 3)
 
-typedef enum e_err_code {
-  ERR_ALIAS_DEPTH = 2,
-  ERR_UNBALANCED_QUOTES,
-  ERR_UNBALANCED_PARENS,
-  ERR_UNBALANCED_BRACES,
-  ERR_UNBALANCED_TOKEN,
-  ERR_REDIR_MAX,
-  ERR_REDIR_FILENAME,
-  ERR_MISSING_FI,
-  ERR_MISSING_THEN,
-  ERR_MISSING_DO,
-  ERR_MISSING_DONE,
-  ERR_MISSING_FOR_VAR,
-  ERR_MISSING_IN,
-  ERR_EMPTY_LOOP,
-  ERR_MALFORMED_FUN,
-  ERR_NEAR_PIPE,
-  ERR_NEAR_AND,
-  ERR_NEAR_OR,
-  ERR_ALLOC,
-} t_err_code;
-
 typedef struct s_shopts {
   bool render_autosgst;
 } t_shopt;
@@ -56,6 +34,11 @@ typedef struct s_env_entry {
   int local_depth;
 } t_env_entry;
 
+typedef struct s_fd_backup {
+  int src_fd;
+  int saved_fd;
+} t_fd_backup;
+
 typedef struct s_exec_ctx {
   t_job *subshell_job;
   bool pipeline;
@@ -63,18 +46,20 @@ typedef struct s_exec_ctx {
   size_t pids_len;
   size_t pids_cap;
   int fnest_d;
+
+  t_fd_backup *fd_prevs;
+  size_t fd_prevs_len;
+  size_t fd_prevs_cap;
+  int cnt_rstr;
+
   bool flow;
   bool script;
   bool return_fun;
   bool break_loop;
+  int break_loop_depth;
   bool continue_loop;
   bool is_subshell;
 } t_exec_ctx;
-
-typedef struct s_fd_backup {
-  int src_fd;
-  int saved_fd;
-} t_fd_backup;
 
 /**
  * @typedef shell_s t_shell
@@ -122,10 +107,6 @@ typedef struct shell_s {
   int next_job_id;
 
   int tty_fd;
-
-  t_fd_backup *fd_prevs;
-  size_t fd_prevs_len;
-  size_t fd_prevs_cap;
 
   unsigned int is_interactive : 1;
   unsigned int job_control_flag : 1;

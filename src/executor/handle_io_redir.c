@@ -12,43 +12,43 @@
  */
 
 static int check_realloc_fdsp(t_shell *shell) {
-  if (shell->fd_prevs_len < shell->fd_prevs_cap)
+  if (shell->exec_ctx.fd_prevs_len < shell->exec_ctx.fd_prevs_cap)
     return 0;
 
-  size_t ncap = shell->fd_prevs_cap * BUF_GROWTH_FACTOR;
-  if (ncap < shell->fd_prevs_cap)
+  size_t ncap = shell->exec_ctx.fd_prevs_cap * BUF_GROWTH_FACTOR;
+  if (ncap < shell->exec_ctx.fd_prevs_cap)
     return -1;
   t_fd_backup *nptr =
       (t_fd_backup *)arena_alloc(&shell->arena, ncap * sizeof(t_fd_backup));
   if (!nptr)
     return -1;
 
-  memcpy(nptr, shell->fd_prevs, shell->fd_prevs_cap * sizeof(t_fd_backup));
+  memcpy(nptr, shell->exec_ctx.fd_prevs,
+         shell->exec_ctx.fd_prevs_cap * sizeof(t_fd_backup));
 
-  shell->fd_prevs = nptr;
-  shell->fd_prevs_cap = ncap;
+  shell->exec_ctx.fd_prevs = nptr;
+  shell->exec_ctx.fd_prevs_cap = ncap;
 
   return 0;
 }
 
-static int save_fd(int src_fd, t_shell *shell) {
-  for (size_t i = 0; i < shell->fd_prevs_len; ++i) {
-    if (shell->fd_prevs[i].src_fd == src_fd)
-      return 0;
+int save_fd(int src_fd, t_shell *shell) {
+  int dup_fd;
+
+  dup_fd = dup(src_fd);
+  if (dup_fd == -1)
+    return (-1);
+
+  if (check_realloc_fdsp(shell) == -1) {
+    close(dup_fd);
+    return (-1);
   }
 
-  int dup_fd = dup(src_fd);
-  if (dup_fd == -1)
-    return -1;
+  shell->exec_ctx.fd_prevs[shell->exec_ctx.fd_prevs_len].src_fd = src_fd;
+  shell->exec_ctx.fd_prevs[shell->exec_ctx.fd_prevs_len].saved_fd = dup_fd;
+  shell->exec_ctx.fd_prevs_len++;
 
-  if (check_realloc_fdsp(shell) == -1)
-    return -1;
-
-  shell->fd_prevs[shell->fd_prevs_len].src_fd = src_fd;
-  shell->fd_prevs[shell->fd_prevs_len].saved_fd = dup_fd;
-  shell->fd_prevs_len++;
-
-  return 0;
+  return (0);
 }
 
 /**
@@ -195,7 +195,8 @@ int read_hd_body(const char *delim, bool strip, t_shell *shell, char **out) {
     if (exp) {
       t_token_stream vs;
       init_token_stream(&vs, &shell->arena);
-      lex_command_line(&abuf, &vs, NULL, 0, &shell->arena, 1);
+      t_err_code lerr;
+      lex_command_line(&abuf, &vs, NULL, 0, &shell->arena, 1, &lerr);
       size_t tbc = eff_len + 1;
       if (tbc < 128)
         tbc = 128;
@@ -352,6 +353,8 @@ static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
     return -1;
   }
 
+  shell->exec_ctx.cnt_rstr++;
+
   close(newfd);
   return 0;
 }
@@ -365,20 +368,22 @@ static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
  *
  */
 int redirect_io(t_shell *shell, t_ast_n *node) {
-  shell->fd_prevs = (t_fd_backup *)arena_alloc(
-      &shell->arena, FDS_P_DEF_SIZE * sizeof(t_fd_backup));
-  shell->fd_prevs_cap = FDS_P_DEF_SIZE;
-  shell->fd_prevs_len = 0;
+  if (!shell->exec_ctx.fd_prevs) {
+    shell->exec_ctx.fd_prevs = (t_fd_backup *)arena_alloc(
+        &shell->arena, FDS_P_DEF_SIZE * sizeof(t_fd_backup));
+    shell->exec_ctx.fd_prevs_cap = FDS_P_DEF_SIZE;
+    shell->exec_ctx.fd_prevs_len = 0;
 
-  for (size_t i = 0; i < shell->fd_prevs_cap; i++) {
-    shell->fd_prevs[i].src_fd = -1;
-    shell->fd_prevs[i].saved_fd = -1;
+    for (size_t i = 0; i < shell->exec_ctx.fd_prevs_cap; i++) {
+      shell->exec_ctx.fd_prevs[i].src_fd = -1;
+      shell->exec_ctx.fd_prevs[i].saved_fd = -1;
+    }
   }
 
   for (int i = 0; node->io_redir[i] != NULL; i++) {
 
     if (apply_single_redir(shell, node, i) == -1) {
-      restore_io(shell);
+      restore_io(shell, node);
       return -1;
     }
   }
@@ -392,20 +397,35 @@ int redirect_io(t_shell *shell, t_ast_n *node) {
  * @param shell pointer to shell struct
  *
  */
-int restore_io(t_shell *shell) {
-  for (size_t i = 0; i < shell->fd_prevs_len; ++i) {
-    int src = shell->fd_prevs[i].src_fd;
-    int saved = shell->fd_prevs[i].saved_fd;
+int restore_io(t_shell *shell, t_ast_n *node) {
+  size_t k = 0;
+  int restore_count;
+
+  while (node->io_redir[k])
+    k++;
+
+  restore_count = k;
+
+  while (restore_count > 0 && shell->exec_ctx.fd_prevs_len > 0) {
+    size_t i = --shell->exec_ctx.fd_prevs_len;
+    int src = shell->exec_ctx.fd_prevs[i].src_fd;
+    int saved = shell->exec_ctx.fd_prevs[i].saved_fd;
 
     if (dup2(saved, src) == -1)
       perror("dup2 restore");
 
     close(saved);
+
+    shell->exec_ctx.fd_prevs[i].src_fd = -1;
+    shell->exec_ctx.fd_prevs[i].saved_fd = -1;
+
+    restore_count--;
   }
 
-  shell->fd_prevs = NULL;
-  shell->fd_prevs_len = 0;
-  shell->fd_prevs_cap = 0;
+  shell->exec_ctx.cnt_rstr -= k;
+
+  if (shell->exec_ctx.fd_prevs_len == 0)
+    shell->exec_ctx.fd_prevs = NULL;
 
   return 0;
 }

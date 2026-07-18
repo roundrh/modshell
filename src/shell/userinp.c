@@ -741,7 +741,8 @@ char *read_user_inp(t_shell *shell) {
         return NULL;
       }
     }
-    if ((c == '\n' || c == '\r') && cmd_idx > 0 && cmd[cmd_idx - 1] == '\\') {
+    if ((c == '\n' || c == '\r') && cmd_idx > 0 && cmd[cmd_idx - 1] == '\\' &&
+        cmd_idx == cmd_len) {
       if (lines_used == cmd_arr_cap) {
         if (realloc_cmd_arr(&cmd_arr, &cmd_arr_cap, &shell->arena) == -1)
           return NULL;

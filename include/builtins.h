@@ -77,5 +77,6 @@ int times_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int wait_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int trap_builtin(t_ast_n *node, t_shell *shell, char **argv);
 int shift_builtin(t_ast_n *node, t_shell *shell, char **argv);
+int printf_builtin(t_ast_n *node, t_shell *shell, char **argv);
 
 #endif // BUILTINS_H

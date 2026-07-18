@@ -1,5 +1,6 @@
 #include "lexer.h"
 #include "arena.h"
+#include "shell.h"
 
 int init_token_stream(t_token_stream *token_stream, t_arena *a) {
 
@@ -272,7 +273,8 @@ static inline bool is_delim(char c) {
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop
  * cond cmd_buf[i+1] can be '\0' but never UB*/
 int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
-                     t_hashtable *aliases, int depth, t_arena *a, bool hd) {
+                     t_hashtable *aliases, int depth, t_arena *a, bool hd,
+                     t_err_code *last_err) {
 
   /* alias depth */
   if (depth > 10) {
@@ -432,7 +434,7 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
              in_single_quote || in_double_quote, cmd_buf[i]);
 
   if (in_single_quote || in_double_quote) {
-    fprintf(stderr, "\nmsh: syntax err unbalanced quotes");
+    *last_err = ERR_UNBALANCED_QUOTES;
     return -1;
   }
 
@@ -449,7 +451,7 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
   if (expanded == 1) {
     init_token_stream(token_stream, a);
     return lex_command_line(cmd_line_buf, token_stream, aliases, depth + 1, a,
-                            hd);
+                            hd, last_err);
   }
 
   return 0;

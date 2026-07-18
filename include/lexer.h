@@ -13,6 +13,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef enum e_err_code {
+  ERR_ALIAS_DEPTH = 2,
+  ERR_UNBALANCED_QUOTES,
+  ERR_UNBALANCED_PARENS,
+  ERR_UNBALANCED_BRACES,
+  ERR_UNBALANCED_TOKEN,
+  ERR_REDIR_MAX,
+  ERR_REDIR_FILENAME,
+  ERR_MISSING_FI,
+  ERR_MISSING_THEN,
+  ERR_MISSING_DO,
+  ERR_MISSING_DONE,
+  ERR_MISSING_FOR_VAR,
+  ERR_MISSING_IN,
+  ERR_EMPTY_LOOP,
+  ERR_MALFORMED_FUN,
+  ERR_NEAR_PIPE,
+  ERR_NEAR_AND,
+  ERR_NEAR_OR,
+  ERR_ALLOC,
+} t_err_code;
+
 typedef enum e_token_type {
 
   TOKEN_SIMPLE = 0,
@@ -66,6 +88,7 @@ typedef struct s_token_stream {
 
 int init_token_stream(t_token_stream *token_stream, t_arena *a);
 int lex_command_line(char **cmd_buf, t_token_stream *tokens,
-                     t_hashtable *aliases, int depth, t_arena *a, bool hd);
+                     t_hashtable *aliases, int depth, t_arena *a, bool hd,
+                     t_err_code *last_err);
 
 #endif // ! LEXER_H

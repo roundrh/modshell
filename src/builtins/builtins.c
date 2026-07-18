@@ -629,6 +629,252 @@ int eval_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   return 0;
 }
 
+#define PF_MAXSPEC 32
+
+static int handle_escape(const char *s, int *i, int *stop) {
+  int c;
+  int val;
+  int n;
+
+  (*i)++;
+  c = s[*i];
+  if (c == 'a') {
+    (*i)++;
+    return ('\a');
+  }
+  if (c == 'b') {
+    (*i)++;
+    return ('\b');
+  }
+  if (c == 'f') {
+    (*i)++;
+    return ('\f');
+  }
+  if (c == 'n') {
+    (*i)++;
+    return ('\n');
+  }
+  if (c == 'r') {
+    (*i)++;
+    return ('\r');
+  }
+  if (c == 't') {
+    (*i)++;
+    return ('\t');
+  }
+  if (c == 'v') {
+    (*i)++;
+    return ('\v');
+  }
+  if (c == '\\') {
+    (*i)++;
+    return ('\\');
+  }
+  if (c == 'c') {
+    (*i)++;
+    *stop = 1;
+    return (-1);
+  }
+  if (c >= '0' && c <= '7') {
+    val = 0;
+    n = 0;
+    while (n < 3 && s[*i] >= '0' && s[*i] <= '7') {
+      val = val * 8 + (s[*i] - '0');
+      (*i)++;
+      n++;
+    }
+    return (val & 0xFF);
+  }
+  /* Unknown escape: print the backslash literally, leave c untouched
+   * so the next loop iteration handles it as a normal character. */
+  return ('\\');
+}
+
+static void print_with_escapes(const char *s) {
+  int i;
+  int stop;
+  int c;
+
+  i = 0;
+  stop = 0;
+  while (s[i] && !stop) {
+    if (s[i] == '\\' && s[i + 1]) {
+      c = handle_escape(s, &i, &stop);
+      if (c >= 0)
+        putchar(c);
+    } else {
+      putchar((unsigned char)s[i]);
+      i++;
+    }
+  }
+}
+
+static long long str_to_ll(const char *s, int *err) {
+  long long res;
+  char *end;
+
+  *err = 0;
+  if (!s || !*s)
+    return (0);
+  if ((s[0] == '\'' || s[0] == '"') && s[1])
+    return ((long long)(unsigned char)s[1]);
+  res = strtoll(s, &end, 10);
+  if (*end != '\0') {
+    *err = 1;
+    fprintf(stderr, "printf: %s: invalid number\n", s);
+  }
+  return (res);
+}
+
+static double str_to_d(const char *s, int *err) {
+  double res;
+  char *end;
+
+  *err = 0;
+  if (!s || !*s)
+    return (0.0);
+  if ((s[0] == '\'' || s[0] == '"') && s[1])
+    return ((double)(unsigned char)s[1]);
+  res = strtod(s, &end);
+  if (*end != '\0') {
+    *err = 1;
+    fprintf(stderr, "printf: %s: invalid number\n", s);
+  }
+  return (res);
+}
+
+static int has_conversion(const char *fmt) {
+  while (*fmt) {
+    if (*fmt == '%') {
+      fmt++;
+      if (*fmt == '%')
+        fmt++;
+      else if (*fmt)
+        return (1);
+    } else
+      fmt++;
+  }
+  return (0);
+}
+
+static int print_conversion(const char *fmt, int *fi, char **args, int nargs,
+                            int *ai) {
+  char subfmt[PF_MAXSPEC];
+  int si;
+  char conv;
+  char *arg;
+  int err;
+
+  si = 0;
+  subfmt[si++] = '%';
+  (*fi)++;
+  while (fmt[*fi] && strchr("-+ 0#", fmt[*fi]) && si < PF_MAXSPEC - 4)
+    subfmt[si++] = fmt[(*fi)++];
+  while (fmt[*fi] && isdigit((unsigned char)fmt[*fi]) && si < PF_MAXSPEC - 4)
+    subfmt[si++] = fmt[(*fi)++];
+  if (fmt[*fi] == '.' && si < PF_MAXSPEC - 4) {
+    subfmt[si++] = fmt[(*fi)++];
+    while (fmt[*fi] && isdigit((unsigned char)fmt[*fi]) && si < PF_MAXSPEC - 4)
+      subfmt[si++] = fmt[(*fi)++];
+  }
+  conv = fmt[*fi];
+  if (conv)
+    (*fi)++;
+  arg = NULL;
+  if (conv != '%' && *ai < nargs)
+    arg = args[(*ai)++];
+  err = 0;
+  if (conv == '%')
+    putchar('%');
+  else if (conv == 'b')
+    print_with_escapes(arg ? arg : "");
+  else if (conv == 'c') {
+    subfmt[si++] = 'c';
+    subfmt[si] = '\0';
+    printf(subfmt, arg ? arg[0] : 0);
+  } else if (conv == 's') {
+    subfmt[si++] = 's';
+    subfmt[si] = '\0';
+    printf(subfmt, arg ? arg : "");
+  } else if (conv == 'd' || conv == 'i') {
+    subfmt[si++] = 'l';
+    subfmt[si++] = 'l';
+    subfmt[si++] = 'd';
+    subfmt[si] = '\0';
+    printf(subfmt, str_to_ll(arg, &err));
+  } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+    subfmt[si++] = 'l';
+    subfmt[si++] = 'l';
+    subfmt[si++] = conv;
+    subfmt[si] = '\0';
+    printf(subfmt, (unsigned long long)str_to_ll(arg, &err));
+  } else if (conv == 'e' || conv == 'E' || conv == 'f' || conv == 'F' ||
+             conv == 'g' || conv == 'G') {
+    subfmt[si++] = conv;
+    subfmt[si] = '\0';
+    printf(subfmt, str_to_d(arg, &err));
+  } else {
+    putchar('%');
+    if (conv)
+      putchar(conv);
+  }
+  return (err);
+}
+
+static int print_format(char *fmt, char **args, int nargs, int *ai) {
+  int fi;
+  int err;
+  int stop;
+  int c;
+
+  fi = 0;
+  err = 0;
+  while (fmt[fi]) {
+    if (fmt[fi] == '%' && fmt[fi + 1]) {
+      if (print_conversion(fmt, &fi, args, nargs, ai))
+        err = 1;
+    } else if (fmt[fi] == '\\' && fmt[fi + 1]) {
+      stop = 0;
+      c = handle_escape(fmt, &fi, &stop);
+      if (c >= 0)
+        putchar(c);
+      if (stop)
+        return (err);
+    } else {
+      putchar((unsigned char)fmt[fi]);
+      fi++;
+    }
+  }
+  return (err);
+}
+
+int printf_builtin(t_ast_n *node, t_shell *shell, char **argv) {
+  char **args;
+  int arg_count;
+  int arg_idx;
+  int has_conv;
+  int err;
+
+  (void)node;
+  (void)shell;
+  if (!argv[1]) {
+    fprintf(stderr, "printf: usage: printf format [arguments]\n");
+    return (1);
+  }
+  args = argv + 2;
+  arg_count = 0;
+  while (args[arg_count])
+    arg_count++;
+  arg_idx = 0;
+  has_conv = has_conversion(argv[1]);
+  err = 0;
+  do {
+    if (print_format(argv[1], args, arg_count, &arg_idx))
+      err = 1;
+  } while (has_conv && arg_idx < arg_count);
+  return (err);
+}
+
 int echo_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   (void)node;
   (void)shell;
@@ -683,10 +929,6 @@ int builtin_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 
 int true_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 0; }
 int false_builtin(t_ast_n *node, t_shell *shell, char **argv) { return 1; }
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 typedef struct s_sig_entry {
   const char *long_name;
@@ -929,11 +1171,13 @@ int test_builtin(t_ast_n *node, t_shell *shell, char **argv) {
       return (val1 > val2) ? 0 : 1;
     if (strcmp(op, "-eq") == 0)
       return (val1 == val2) ? 0 : 1;
+    if (strcmp(op, "-ne") == 0)
+      return val1 != val2 ? 0 : 1;
     if (strcmp(op, "-le") == 0)
       return (val1 <= val2) ? 0 : 1;
     if (strcmp(op, "-ge") == 0)
       return (val1 >= val2) ? 0 : 1;
-    if (strcmp(op, "==") == 0)
+    if (strcmp(op, "=") == 0)
       return (strcmp(left, right) == 0) ? 0 : 1;
     if (strcmp(op, "!=") == 0)
       return (strcmp(left, right) != 0) ? 0 : 1;
@@ -1127,6 +1371,7 @@ int break_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   }
 
   shell->exec_ctx.break_loop = true;
+  shell->exec_ctx.break_loop_depth = argv[1] ? atoi(argv[1]) : 1;
   shell->last_exit_status = 0;
 
   return 0;

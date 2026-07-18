@@ -1494,19 +1494,19 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
       make_buf(shell, vs.tokens, vs.tokens_arr_len, a, &buf, &buf_cap, 0);
   switch (err) {
   case err_fatal:
-    fprintf(stderr, "\nmsh: fatal expansion error");
+    fprintf(stderr, "\nmsh: fatal expansion error\n");
     break;
   case err_syntax:
-    fprintf(stderr, "\nmsh: syntax err expansion");
+    fprintf(stderr, "msh: syntax err expansion\n");
     break;
   case err_depth:
-    fprintf(stderr, "\nmsh: max expansion depth");
+    fprintf(stderr, "msh: max expansion depth\n");
     break;
   case err_div_zero:
-    fprintf(stderr, "\nmsh: div by zero");
+    fprintf(stderr, "msh: div by zero\n");
     break;
   case err_overflow:
-    fprintf(stderr, "\nmsh: overflow");
+    fprintf(stderr, "msh: overflow\n");
     break;
   default:
     if (err != err_none) {
@@ -1533,9 +1533,12 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
   }
 
 #ifdef DEBUG
+  size_t cnt = 0;
   for (size_t i = 0; (*argv)[i]; i++) {
     printf("argv[%zu]: %s\n", i, (*argv)[i]);
+    cnt++;
   }
+  printf("%zu", cnt);
 #endif
 
   return err_none;

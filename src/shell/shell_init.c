@@ -165,7 +165,8 @@ static int push_built_ins(t_shell *shell) {
                                            {"times", times_builtin},
                                            {"wait", wait_builtin},
                                            {"trap", trap_builtin},
-                                           {"shift", shift_builtin}};
+                                           {"shift", shift_builtin},
+                                           {"printf", printf_builtin}};
 
   for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); ++i) {
     if (!insert_builtin(&shell->builtins, builtins[i].name, builtins[i].fn))
@@ -565,6 +566,7 @@ int init_shell_state(t_shell *shell, bool script) {
   shell->exec_ctx.fnest_d = 0;
   shell->exec_ctx.script = script;
   shell->exec_ctx.continue_loop = false;
+  shell->exec_ctx.cnt_rstr = 0;
   shell->exec_ctx.break_loop = false;
   shell->exec_ctx.return_fun = false;
   shell->exec_ctx.pipeline_pids = NULL;

@@ -6,7 +6,6 @@
 #include "lexer.h"
 #include "shell.h"
 #include "shell_init.h"
-#include <asm-generic/errno-base.h>
 #include <signal.h>
 
 #define DEFSIZE_PIDS 8
@@ -98,7 +97,8 @@ static int parent_place_child_pgrp(t_shell *shell, t_job *job, pid_t pid) {
   return 0;
 }
 
-static void print_err(t_err_code last_err, size_t lc, bool is_script) {
+static void print_err(t_err_code last_err, size_t lc, bool is_script,
+                      bool print_line_num) {
 
   const char *msg;
   switch (last_err) {
@@ -192,7 +192,7 @@ static void print_err(t_err_code last_err, size_t lc, bool is_script) {
     break;
   }
 
-  if (is_script)
+  if (print_line_num)
     fprintf(stderr, "msh: %zu: %s\n", lc, msg);
   else
     fprintf(stderr, "msh: %s\n", msg);
@@ -281,7 +281,8 @@ static int cnt_hd_delims(t_shell *shell, char *line, char ***delims,
   t_token_stream vs;
   init_token_stream(&vs, &shell->arena);
 
-  lex_command_line(&line, &vs, NULL, 0, &shell->arena, false);
+  t_err_code lerr;
+  lex_command_line(&line, &vs, NULL, 0, &shell->arena, false, &lerr);
 
   int cnt = 0;
   size_t delims_i = 0;
@@ -349,6 +350,7 @@ int exec_script(t_shell *shell, const char *path) {
 
   char *line = NULL;
   size_t lc = 0;
+  size_t last_err_line = 0;
   size_t cap = 0;
   char *total_buf = NULL;
   t_err_code last_err;
@@ -368,7 +370,7 @@ int exec_script(t_shell *shell, const char *path) {
     while (*p && isspace(*p))
       p++;
     lc++;
-    if (*p == '#' || *p == '\0')
+    if ((*p == '#' || *p == '\0') && last_err != ERR_UNBALANCED_QUOTES)
       continue;
 
     int cnt =
@@ -379,22 +381,40 @@ int exec_script(t_shell *shell, const char *path) {
     }
 
     total_buf = append_script_line(total_buf, line, &shell->arena);
-
+    size_t k = strlen(total_buf);
+    if (k >= 2 && total_buf[k - 2] == '\\') {
+      total_buf[k - 1] = '\0';
+      total_buf[k - 2] = '\0';
+      continue;
+    }
     if (parse_and_execute(&total_buf, shell, &shell->token_stream, true,
                           &last_err) == 0) {
       total_buf = NULL;
       arena_reset(&shell->arena);
+#ifdef DEBUG
+      fprintf(stdout, "stdout: exec l: %zu\n", lc);
+      fprintf(stderr, "stderr: exec l: %zu\n", lc);
+
+      fflush(stdout);
+      fflush(stderr);
+#endif
 
       shell->pending_hds =
           (char **)arena_alloc(&shell->arena, INIT_HD_CAP * sizeof(char *));
       shell->pending_hds_cap = INIT_HD_CAP;
       shell->pending_hds_len = 0;
     } else {
-      print_err(last_err, lc, true);
+      if (last_err == ERR_UNBALANCED_QUOTES && total_buf[k - 1] == '\n') {
+        last_err_line = lc;
+        continue;
+      }
+      print_err(last_err, lc, true, true);
     }
   }
   if (total_buf != NULL) {
-    print_err(last_err, lc, false);
+    // is_script false here to print all errors not just ones that could pop up
+    // from incomplete accumulation
+    print_err(last_err, last_err_line, false, true);
     fprintf(stderr, "msh: unexpected EOF while looking for matching token\n");
   }
 
@@ -860,16 +880,16 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job) {
       return 0;
     }
     if (job->position == P_FOREGROUND) {
+      ctx->flow = true;
       ctx->fnest_d++;
       char **curr_argv = shell->argv;
       shell->argv = argv;
       size_t curr_argc = shell->argc;
+
       for (shell->argc = 0; argv[shell->argc]; shell->argc++)
         ;
-      int status = exec_list(NULL, fn_node->value, shell);
-      if (status)
-        shell->last_exit_status = status;
 
+      exec_list(NULL, fn_node->value, shell);
       // this can never be == 0 here but guarding to be safe as to not delete
       // every not exported variable
       if (ctx->fnest_d > 0)
@@ -877,7 +897,11 @@ static pid_t exec_simple_command(t_ast_n *node, t_shell *shell, t_job *job) {
       ctx->fnest_d--;
       shell->argv = curr_argv;
       shell->argc = curr_argc;
-      return status;
+
+      ctx->flow = false;
+      ctx->return_fun = false;
+
+      return shell->last_exit_status;
     } else if (job->position == P_BACKGROUND) {
       job->depth = ctx->fnest_d;
       return exec_bg_fun(shell, node, job, fn_node, argv);
@@ -1017,7 +1041,7 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job) {
   }
 
   if (restore_io_flag)
-    restore_io(shell);
+    restore_io(shell, node);
 
   return pid;
 }
@@ -1433,8 +1457,9 @@ static int exec_list(char *cmd_buf, t_ast_n *node, t_shell *shell) {
 
   if (shell->exec_ctx.continue_loop && shell->exec_ctx.flow)
     return 0;
-  if (shell->exec_ctx.break_loop && shell->exec_ctx.flow)
+  if (shell->exec_ctx.break_loop && shell->exec_ctx.flow) {
     return 0;
+  }
   if (shell->exec_ctx.return_fun) {
     return shell->last_exit_status;
   }
@@ -1623,20 +1648,37 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
                       t_token_stream *token_stream, bool script,
                       t_err_code *last_err) {
   *last_err = -1;
-  shell->exec_ctx.return_fun = false;
+
+  t_fd_backup *saved_fd_prevs = shell->exec_ctx.fd_prevs;
+  size_t saved_fd_prevs_len = shell->exec_ctx.fd_prevs_len;
+  size_t saved_fd_prevs_cap = shell->exec_ctx.fd_prevs_cap;
+  int saved_cnt_rstr = shell->exec_ctx.cnt_rstr;
+
+  shell->exec_ctx.cnt_rstr = 0;
+  shell->exec_ctx.fd_prevs = NULL;
+  shell->exec_ctx.fd_prevs_len = 0;
+  shell->exec_ctx.fd_prevs_cap = 0;
 
   init_token_stream(token_stream, &shell->arena);
   t_hashtable *aliases = &(shell->aliases);
-  if (lex_command_line(cmd_buf, token_stream, aliases, 0, &shell->arena, 0) ==
-      -1) {
+  if (lex_command_line(cmd_buf, token_stream, aliases, 0, &shell->arena, 0,
+                       last_err) == -1) {
+    shell->exec_ctx.fd_prevs = saved_fd_prevs;
+    shell->exec_ctx.fd_prevs_len = saved_fd_prevs_len;
+    shell->exec_ctx.fd_prevs_cap = saved_fd_prevs_cap;
+    shell->exec_ctx.cnt_rstr = saved_cnt_rstr;
     return -1;
   }
 
   t_ast_n *root;
   if ((root = build_ast(&(shell->ast), token_stream, &shell->arena,
                         last_err)) == NULL) {
+    shell->exec_ctx.fd_prevs = saved_fd_prevs;
+    shell->exec_ctx.fd_prevs_len = saved_fd_prevs_len;
+    shell->exec_ctx.fd_prevs_cap = saved_fd_prevs_cap;
+    shell->exec_ctx.cnt_rstr = saved_cnt_rstr;
     if (!script)
-      print_err(*last_err, 0, script);
+      print_err(*last_err, 0, script, false);
     return -1;
   }
 
@@ -1675,16 +1717,20 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   exec_list(*cmd_buf, root, shell);
 
+  shell->exec_ctx.fd_prevs = saved_fd_prevs;
+  shell->exec_ctx.fd_prevs_len = saved_fd_prevs_len;
+  shell->exec_ctx.fd_prevs_cap = saved_fd_prevs_cap;
+  shell->exec_ctx.cnt_rstr = saved_cnt_rstr;
+
   if (!script) {
     sigprocmask(SIG_SETMASK, &old, NULL);
     sigaction(SIGINT, &osa_int, NULL);
   }
 
   sigaction(SIGWINCH, &osa_winch, NULL);
+
   shell->ast.root = NULL;
-
   shell->exec_ctx.pipeline_pids = NULL;
-
   sigs[SIGINT] = 0;
   sigs[SIGTSTP] = 0;
   return 0;

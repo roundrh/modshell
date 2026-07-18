@@ -44,6 +44,6 @@ int collect_stdin_hds(t_shell *shell, t_ast_n *root);
  * std_fd_backup[2] in shell struct.
  * @note called by executor
  */
-int restore_io(t_shell *shell);
+int restore_io(t_shell *shell, t_ast_n *node);
 
 #endif // ! HANDLE_IO_REDIR_H
