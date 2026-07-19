@@ -74,7 +74,7 @@ size_t visible_len(const char *s, int cols, int *rows);
 
 void prompt_metrics(const char *s, int term_cols, size_t *rows, size_t *cols);
 
-char *parse_prompt(const char *src);
+char *parse_prompt(t_shell *shell, const char *src);
 
 int replace_home_dir(char **buf, const char *home);
 

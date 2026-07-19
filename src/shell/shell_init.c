@@ -1,4 +1,5 @@
 #include "shell_init.h"
+#include "ast.h"
 #include "builtins.h"
 #include "executor.h"
 #include "shell.h"
@@ -239,9 +240,10 @@ size_t visible_len(const char *s, int cols, int *rows) {
   return len;
 }
 
-char *parse_prompt(const char *src) {
-  size_t len = strlen(src);
-  char *dst = malloc(len + 1);
+#define MAX_PROMPT_LEN 4096
+
+char *parse_prompt(t_shell *shell, const char *src) {
+  char *dst = malloc(MAX_PROMPT_LEN); /* or MAX_PROMPT_LEN */
   if (!dst)
     return NULL;
 
@@ -249,6 +251,36 @@ char *parse_prompt(const char *src) {
   char *d = dst;
 
   while (*s) {
+    /* Variable expansion */
+    if (*s == '$') {
+      s++;
+
+      if (!(isalpha((unsigned char)*s) || *s == '_')) {
+        *d++ = '$';
+        continue;
+      }
+
+      const char *start = s;
+      while (isalnum((unsigned char)*s) || *s == '_')
+        s++;
+
+      size_t name_len = s - start;
+
+      char name[name_len + 1];
+      memcpy(name, start, name_len);
+      name[name_len] = '\0';
+
+      const char *value = getenv_local_ref(&shell->env, name);
+      if (!value)
+        value = "";
+
+      size_t value_len = strlen(value);
+      memcpy(d, value, value_len);
+      d += value_len;
+
+      continue;
+    }
+
     if (*s != '\\') {
       *d++ = *s++;
       continue;
@@ -316,10 +348,13 @@ char *parse_prompt(const char *src) {
       break;
     }
 
+    case '\0':
+      *d++ = '\\';
+      break;
+
     default:
       *d++ = '\\';
-      if (*s)
-        *d++ = *s++;
+      *d++ = *s++;
       break;
     }
   }

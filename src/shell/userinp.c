@@ -1,5 +1,6 @@
 #include "userinp.h"
 #include "executor.h"
+#include "lexer.h"
 #include "var_exp.h"
 #include <fcntl.h>
 #include <stdbool.h>
@@ -634,7 +635,7 @@ static int use_ps2(t_shell *shell) {
     free(shell->prompt);
 
   const char *p = getenv_local_ref(&shell->env, "PS2");
-  shell->prompt = parse_prompt(p);
+  shell->prompt = parse_prompt(shell, p);
   if (!shell->prompt) {
     shell->prompt = strdup("> ");
     shell->prompt_len = 2;
@@ -684,15 +685,13 @@ char *read_user_inp(t_shell *shell) {
 
   size_t tot_len = 0;
 
-  if (isnewprompt(getenv_local_ref(&shell->env, "PS1"), shell->prompt)) {
-    if (shell->prompt)
-      free(shell->prompt);
-    const char *raw = getenv_local_ref(&shell->env, "PS1");
-    shell->prompt = parse_prompt(raw);
-    replace_home_dir(&shell->prompt, getenv_local_ref(&shell->env, "HOME"));
-    shell->prompt_len =
-        visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
-  }
+  if (shell->prompt)
+    free(shell->prompt);
+  const char *raw = getenv_local_ref(&shell->env, "PS1");
+  shell->prompt = parse_prompt(shell, raw);
+  replace_home_dir(&shell->prompt, getenv_local_ref(&shell->env, "HOME"));
+  shell->prompt_len =
+      visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
 
   bool tab = false;
   while (1) {
