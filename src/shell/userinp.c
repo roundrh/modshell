@@ -1,6 +1,5 @@
 #include "userinp.h"
 #include "executor.h"
-#include "lexer.h"
 #include "var_exp.h"
 #include <fcntl.h>
 #include <stdbool.h>
@@ -622,12 +621,6 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
   printf("\033[J");
   freematches(c.matches);
   tcsetattr(STDIN_FILENO, TCSANOW, &shell->term_ctrl.curr_settings);
-}
-
-static inline bool isnewprompt(const char *nprmpt, const char *oprmpt) {
-  if (!nprmpt || !oprmpt)
-    return 1;
-  return strcmp(nprmpt, oprmpt) != 0;
 }
 
 static int use_ps2(t_shell *shell) {

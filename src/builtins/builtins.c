@@ -239,7 +239,6 @@ int local_builtin(t_ast_n *node, t_shell *shell, char **argv) {
 }
 
 int jobs_builtin(t_ast_n *node, t_shell *shell, char **argv) {
-
   if (shell->job_control_flag == -1) {
     fprintf(stderr, "\nmsh: job control disabled");
     return -1;

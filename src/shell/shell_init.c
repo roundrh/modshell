@@ -395,8 +395,8 @@ int get_shell_prompt(t_shell *shell) {
   }
   (shell->prompt)[0] = '\0';
   snprintf(shell->prompt, prompt_cap,
-           "\033[1;37m%s@%s %s\033[0m:\033[0;37m%s\033[0m\033[1;37m$ \033[0m",
-           user, hostname, dir, shell->sh_name);
+           "\033[1;37m$USER@$HOST "
+           "$PWD\033[0m:\033[0;37mmsh\033[0m\033[1;37m$ \033[0m");
   free(dir);
   add_to_env(shell, "PS1", shell->prompt, false, 0);
   add_to_env(shell, "PS2", "> ", false, 0);
@@ -408,7 +408,6 @@ int get_shell_prompt(t_shell *shell) {
 
   return 0;
 }
-
 static void hash_directory(t_hashtable *bins, char *dir_path) {
   DIR *dir = opendir(dir_path);
   struct dirent *entry;
