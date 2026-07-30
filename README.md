@@ -43,6 +43,11 @@ suggestion
   - Single tab lists possible matches
   - Double tab launches interactive loop, scrollable with tab, or arrow keys, enter to append, any key to quit.
   - Includes written pager to scroll large lists of tab completions.
+- Custom Prompts:
+  - Using PS1/PS2 via export PS1 or export PS2 to allow for custom prompts and shell expansions
+  - These variables follow dynamic expansion, meaning export PS1='$PWD' or export PS1='$(git_branch)' will expand PWD everytime the shell updates the prompt after a command, i.e. upon reading input again
+  - Escape characters are parsed in the same way \n will append a newline and such
+  - ~/.mshrc shows a default config for PS1 to demonstrate how it expands
 - Arena Allocator for command life-cycles
 - Flow Control:
   - if/elif/else
