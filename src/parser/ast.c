@@ -51,7 +51,7 @@ static t_io_redir **clone_io_redir(t_io_redir **src) {
   size_t n = 0;
   while (src[n])
     n++;
-
+  
   t_io_redir **dst = calloc(n + 1, sizeof(t_io_redir *));
   if (!dst) {
     perror("calloc");

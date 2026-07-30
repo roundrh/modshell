@@ -60,8 +60,26 @@ static void load_rc(t_shell *shell) {
       int fd = open(rc_path, O_CREAT | O_WRONLY | O_EXCL, 0644);
       if (fd != -1) {
         dprintf(fd, "# msh config file\n\n");
-        dprintf(fd, "export MSH_RENDER_AUTOSGST=1\n\n");
-        dprintf(fd, "export FUNCNEST=10\n\n");
+
+        dprintf(
+            fd,
+            "git_branch() {\n"
+            "    branch=$(git branch --show-current 2>/dev/null) || return\n"
+            "\n"
+            "    if [ \"$branch\" = \"\" ]; then\n"
+            "        return\n"
+            "    fi\n"
+            "\n"
+            "    printf '\\033[1;37m(%%s)\\033[0m' \"$branch\"\n"
+            "}\n\n");
+
+        dprintf(fd, "export MSH_RENDER_AUTOSGST=1\n");
+        dprintf(fd, "export PS1='\\033[1;1m$USER@$HOST\\033[0m "
+                    "\\033[0m$PWD\\033[0m "
+                    "$(git_branch) "
+                    "\\033[1;0m$\\033[0m '\n");
+        dprintf(fd, "export FUNCNEST=50\n\n");
+
         dprintf(fd, "# aliases\n");
         dprintf(fd, "alias l='ls -lAh'\n");
         dprintf(fd, "alias ls='ls --color=tty'\n");
@@ -242,8 +260,30 @@ size_t visible_len(const char *s, int cols, int *rows) {
 
 #define MAX_PROMPT_LEN 4096
 
+char *expand_prompt(t_shell *shell, const char *src) {
+  if (!src)
+    return NULL;
+
+  size_t cap = MAX_PROMPT_LEN;
+  char *buf = arena_alloc(&shell->arena, cap);
+  if (!buf)
+    return NULL;
+
+  buf[0] = '\0';
+
+  t_err_type err = expand_into_buf(shell, src, &shell->arena, &buf, &cap);
+  if (err != err_none) {
+    free(buf);
+    return NULL;
+  }
+
+  char *b = parse_prompt(shell, buf);
+
+  return b;
+}
+
 char *parse_prompt(t_shell *shell, const char *src) {
-  char *dst = malloc(MAX_PROMPT_LEN); /* or MAX_PROMPT_LEN */
+  char *dst = arena_alloc(&shell->arena, MAX_PROMPT_LEN);
   if (!dst)
     return NULL;
 
@@ -251,36 +291,6 @@ char *parse_prompt(t_shell *shell, const char *src) {
   char *d = dst;
 
   while (*s) {
-    /* Variable expansion */
-    if (*s == '$') {
-      s++;
-
-      if (!(isalpha((unsigned char)*s) || *s == '_')) {
-        *d++ = '$';
-        continue;
-      }
-
-      const char *start = s;
-      while (isalnum((unsigned char)*s) || *s == '_')
-        s++;
-
-      size_t name_len = s - start;
-
-      char name[name_len + 1];
-      memcpy(name, start, name_len);
-      name[name_len] = '\0';
-
-      const char *value = getenv_local_ref(&shell->env, name);
-      if (!value)
-        value = "";
-
-      size_t value_len = strlen(value);
-      memcpy(d, value, value_len);
-      d += value_len;
-
-      continue;
-    }
-
     if (*s != '\\') {
       *d++ = *s++;
       continue;
@@ -367,9 +377,6 @@ int get_shell_prompt(t_shell *shell) {
   if (getenv_local_ref(&shell->env, "PS1"))
     return 0;
 
-  if (shell->prompt)
-    free(shell->prompt);
-
   char hostname[256];
   if (gethostname(hostname, sizeof(hostname)) == -1) {
     perror("gethostname");
@@ -385,16 +392,9 @@ int get_shell_prompt(t_shell *shell) {
     return -1;
   }
 
-  ;
-  char *user = getenv("USER");
-  size_t prompt_cap = strlen(dir) + strlen(user) + strlen(hostname) + 64;
-  shell->prompt = (char *)malloc(prompt_cap);
-  if (!shell->prompt) {
-    perror("malloc");
-    return -1;
-  }
-  (shell->prompt)[0] = '\0';
-  snprintf(shell->prompt, prompt_cap,
+  shell->prompt = arena_alloc(&shell->arena, MAX_PROMPT_LEN);
+
+  snprintf(shell->prompt, MAX_PROMPT_LEN,
            "\033[1;37m$USER@$HOST "
            "$PWD\033[0m:\033[0;37mmsh\033[0m\033[1;37m$ \033[0m");
   free(dir);

@@ -624,16 +624,19 @@ static void tab_dbl(char *cmd, size_t *cmd_len, size_t *cmd_idx, t_shell *shell,
 }
 
 static int use_ps2(t_shell *shell) {
-  if (shell->prompt)
-    free(shell->prompt);
 
   const char *p = getenv_local_ref(&shell->env, "PS2");
-  shell->prompt = parse_prompt(shell, p);
+  shell->prompt = expand_prompt(shell, p);
+
   if (!shell->prompt) {
-    shell->prompt = strdup("> ");
+    shell->prompt = arena_alloc(&shell->arena, 3);
+    shell->prompt[0] = '>';
+    shell->prompt[1] = ' ';
+    shell->prompt[2] = '\0';
     shell->prompt_len = 2;
     return 0;
   }
+
   get_term_size(&shell->rows, &shell->cols);
   shell->prompt_len =
       visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
@@ -678,10 +681,8 @@ char *read_user_inp(t_shell *shell) {
 
   size_t tot_len = 0;
 
-  if (shell->prompt)
-    free(shell->prompt);
   const char *raw = getenv_local_ref(&shell->env, "PS1");
-  shell->prompt = parse_prompt(shell, raw);
+  shell->prompt = expand_prompt(shell, raw);
   replace_home_dir(&shell->prompt, getenv_local_ref(&shell->env, "HOME"));
   shell->prompt_len =
       visible_len(shell->prompt, shell->cols, &shell->prompt_rows);
@@ -905,7 +906,6 @@ char *read_user_inp(t_shell *shell) {
   char *tot = (char *)arena_alloc(&shell->arena, tot_len + 1);
   size_t k = 0;
   for (size_t i = 0; i < lines_used; i++) {
-
     size_t len = strlen(cmd_arr[i]);
 
     if (i != lines_used - 1 && len && cmd_arr[i][len - 1] == '\\')

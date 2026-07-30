@@ -166,4 +166,7 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *start,
 t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
                     t_arena *a, char **buf, size_t *buf_cap, bool hd);
 
+t_err_type expand_into_buf(t_shell *shell, const char *src, t_arena *a,
+                           char **buf, size_t *buf_cap);
+
 #endif // ! VAR_EXP_H

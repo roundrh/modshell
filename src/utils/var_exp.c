@@ -1032,6 +1032,43 @@ static size_t mov_tok(t_token **t, const char *p, t_token *start,
   return moved;
 }
 
+t_err_type expand_into_buf(t_shell *shell, const char *src, t_arena *a,
+                           char **buf, size_t *buf_cap) {
+  const char *p = src;
+  size_t k = 0;
+
+  bool sq = false;
+  bool dq = false;
+
+  if (*p == '~')
+    expand_tilde(shell, buf, buf_cap, &p, &k, a);
+
+  while (*p) {
+    if (*p == '\'' && !dq)
+      sq = !sq;
+    else if (*p == '"' && !sq)
+      dq = !dq;
+
+    if (*p == '$' && !sq && *(p + 1) && !isspace((unsigned char)*(p + 1))) {
+      t_exp_handler h = find_handler(p + 1);
+      p++;
+
+      t_err_type err = h(shell, buf, buf_cap, &p, &k, a);
+      if (err != err_none)
+        return err;
+
+      continue;
+    }
+
+    char c[2] = {*p, '\0'};
+    append_to_buf(buf, buf_cap, &k, c, a);
+    p++;
+  }
+
+  (*buf)[k] = '\0';
+  return err_none;
+}
+
 t_err_type make_buf(t_shell *shell, t_token *start, size_t segment_len,
                     t_arena *a, char **buf, size_t *buf_cap, bool hd) {
   t_token *t = start;

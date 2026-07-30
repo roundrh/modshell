@@ -13,6 +13,7 @@ unsigned ht_hash(const char *key) {
 
   while ((c = *key++))
     h = ((h << 5) + h) + c;
+    
 
   return h % HT_DEFSIZE;
 }

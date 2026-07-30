@@ -78,6 +78,8 @@ char *parse_prompt(t_shell *shell, const char *src);
 
 int replace_home_dir(char **buf, const char *home);
 
+char *expand_prompt(t_shell *shell, const char *src);
+
 int get_shell_prompt(t_shell *shell);
 /**
  * @def init_shell_state(t_shell* shell)
