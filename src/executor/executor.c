@@ -33,7 +33,8 @@ int check_trap(t_shell *shell) {
                          .return_fun = false,
                          .pipeline_pids = NULL,
                          .pids_len = 0,
-                         .pids_cap = 0};
+                         .pids_cap = 0,
+                         .mask_valid = false};
       shell->exec_ctx = nctx;
       t_err_code last_err;
       if (i != SIGWINCH && i != SIGCHLD)
@@ -656,7 +657,7 @@ static pid_t exec_bg_fun(t_shell *shell, t_ast_n *node, t_job *job,
     child_join_pgrp(shell, job);
 
     shell->job_control_flag = 0;
-    init_ch_sigtable(&(shell->shell_sigtable));
+    init_ch_sigtable(&(shell->shell_sigtable), &ctx->pmask);
 
     ctx->subshell_job = job;
     ctx->flow = false;
@@ -732,7 +733,17 @@ static pid_t exec_extern_cmd(t_shell *shell, t_ast_n *node, t_job *job,
       job->pgid = getpid();
 
     child_join_pgrp(shell, job);
-    init_ch_sigtable(&(shell->shell_sigtable));
+    init_ch_sigtable(&(shell->shell_sigtable), &ctx->pmask);
+
+    sigset_t mask;
+
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+
+    if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1) {
+      perror("sigprocmask");
+      _exit(126);
+    }
 
     char **env = flatten_env(&shell->env, &shell->arena);
     if (strchr(argv[0], '/')) {
@@ -785,7 +796,7 @@ static pid_t exec_bg_builtin(t_ast_n *node, t_shell *shell, t_job *job,
 
   if (pid == 0) {
 
-    init_ch_sigtable(&(shell->shell_sigtable));
+    init_ch_sigtable(&(shell->shell_sigtable), &shell->exec_ctx.pmask);
 
     if (job->pgid == -1)
       job->pgid = getpid();
@@ -956,7 +967,7 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job) {
     child_join_pgrp(shell, job);
 
     shell->job_control_flag = 0;
-    init_ch_sigtable(&(shell->shell_sigtable));
+    init_ch_sigtable(&(shell->shell_sigtable), &ctx->pmask);
 
     ctx->is_subshell = true;
     ctx->subshell_job = job;
@@ -1002,6 +1013,10 @@ static pid_t exec_subshell(t_ast_n *node, t_shell *shell, t_job *job) {
   return pid;
 }
 
+static inline bool isflow(t_op_type op) {
+  return (op == OP_FOR || op == OP_IF || op == OP_UNTIL || op == OP_WHILE);
+}
+
 /**
  * @brief executes command in node based on saved OP_TYPE by parser
  * @param node pointer to ast node
@@ -1037,6 +1052,8 @@ static pid_t exec_command(t_ast_n *node, t_shell *shell, t_job *job) {
     pid = exec_subshell(node, shell, job);
     if (pid > 0)
       append_pid_pipeline(pid, ctx, &shell->arena);
+  } else if (isflow(node->op_type)) {
+    exec_list(NULL, node, shell);
   }
 
   if (restore_io_flag)
@@ -1082,6 +1099,10 @@ static t_ast_n *flatten_ast(t_ast_n *node, t_arena *a) {
     new_node->io_redir = node->io_redir;
 
     new_node->redir_bool = node->redir_bool;
+
+    new_node->for_items = node->for_items;
+    new_node->for_var = node->for_var;
+    new_node->items_len = node->items_len;
 
     new_node->left = NULL;
     new_node->right = NULL;
@@ -1177,7 +1198,9 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
           close(pipes[j][1]);
         }
 
-        init_ch_sigtable(&shell->shell_sigtable);
+        init_ch_sigtable(&shell->shell_sigtable, &ctx->pmask);
+
+        shell->job_control_flag = false;
 
         exec_command(exec, shell, job);
 
@@ -1196,7 +1219,9 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
           close(pipes[j][1]);
         }
 
-        init_ch_sigtable(&shell->shell_sigtable);
+        init_ch_sigtable(&shell->shell_sigtable, &ctx->pmask);
+
+        shell->job_control_flag = false;
 
         exec_command(exec, shell, job);
 
@@ -1218,7 +1243,9 @@ static pid_t exec_pipe(t_ast_n *node, t_shell *shell, t_job *job) {
           close(pipes[j][1]);
         }
 
-        init_ch_sigtable(&shell->shell_sigtable);
+        init_ch_sigtable(&shell->shell_sigtable, &ctx->pmask);
+
+        shell->job_control_flag = false;
 
         exec_command(exec, shell, job);
 
@@ -1340,7 +1367,10 @@ static int exec_job(char *cmd_buf, t_ast_n *node, t_shell *shell) {
   } else if (shell->job_control_flag && job->pgid != -1) {
     if (!ctx->is_subshell)
       print_job_info(job);
-    usleep(10000);
+    // dont wait in flow for jobs like ls & to appear after the prompt, there
+    // will be no prompt
+    if (!ctx->flow)
+      usleep(10000);
     return WAIT_FINISHED;
   } else if (!shell->job_control_flag) {
     /* builtins set shell exit status - return pid 0 */
@@ -1403,7 +1433,7 @@ static int exec_cond_bg(char *cmd_buf, t_ast_n *node, t_shell *shell) {
       setpgid(0, 0);
 
     shell->job_control_flag = 0;
-    init_ch_sigtable(&(shell->shell_sigtable));
+    init_ch_sigtable(&(shell->shell_sigtable), &ctx->pmask);
 
     node->background = 0;
 
@@ -1696,17 +1726,17 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
 
   struct sigaction sa_int, osa_int;
   struct sigaction sa_winch, osa_winch;
-  sigset_t old, new;
 
+  bool oldmask = shell->exec_ctx.mask_valid;
   if (!script) {
+    if (mask_sigs(&shell->exec_ctx.pmask) == -1)
+      return -1;
+    shell->exec_ctx.mask_valid = true;
+
     sigemptyset(&sa_int.sa_mask);
     sa_int.sa_handler = sig_handler;
     sa_int.sa_flags = 0;
     sigaction(SIGINT, &sa_int, &osa_int);
-
-    sigemptyset(&new);
-    sigaddset(&new, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &new, &old);
   }
 
   sigemptyset(&sa_winch.sa_mask);
@@ -1722,7 +1752,8 @@ int parse_and_execute(char **cmd_buf, t_shell *shell,
   shell->exec_ctx.cnt_rstr = saved_cnt_rstr;
 
   if (!script) {
-    sigprocmask(SIG_SETMASK, &old, NULL);
+    restore_sigs(&shell->exec_ctx.pmask);
+    shell->exec_ctx.mask_valid = oldmask;
     sigaction(SIGINT, &osa_int, NULL);
   }
 

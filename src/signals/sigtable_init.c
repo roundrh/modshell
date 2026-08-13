@@ -27,7 +27,36 @@ int init_pa_sigtable(t_shell_sigtable *sigtable) {
   return 0;
 }
 
-int init_ch_sigtable(t_shell_sigtable *sigtable) {
+int mask_sigs(sigset_t *oldmask) {
+  sigset_t mask;
+
+  if (!oldmask)
+    return -1;
+
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGCHLD);
+
+  if (sigprocmask(SIG_BLOCK, &mask, oldmask) == -1) {
+    perror("sigprocmask");
+    return -1;
+  }
+
+  return 0;
+}
+
+int restore_sigs(const sigset_t *oldmask) {
+  if (!oldmask)
+    return -1;
+
+  if (sigprocmask(SIG_SETMASK, oldmask, NULL) == -1) {
+    perror("sigprocmask");
+    return -1;
+  }
+
+  return 0;
+}
+
+int init_ch_sigtable(t_shell_sigtable *sigtable, const sigset_t *pmask) {
 
   if (sigtable == NULL) {
     return -1;
@@ -39,6 +68,9 @@ int init_ch_sigtable(t_shell_sigtable *sigtable) {
   INIT_SIG(sigtable, SIGTTOU, SIG_DFL, 0, SIGTTOU);
   INIT_SIG(sigtable, SIGTTIN, SIG_DFL, 0, SIGTTIN);
   INIT_SIG(sigtable, SIGCHLD, SIG_DFL, 0, SIGCHLD);
+
+  if (restore_sigs(pmask) == -1)
+    return -1;
 
   return 0;
 }

@@ -1095,7 +1095,7 @@ int command_builtin(t_ast_n *node, t_shell *shell, char **argv) {
   }
 
   if (pid == 0) {
-    init_ch_sigtable(&shell->shell_sigtable);
+    init_ch_sigtable(&shell->shell_sigtable, &shell->exec_ctx.pmask);
 
     if (strchr(argv[0], '/')) {
       execve(argv[0], argv, env);

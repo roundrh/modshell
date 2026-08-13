@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
   make_argl(&shell_state, argc, argv);
 
   if (argc > 1) {
-    init_ch_sigtable(&shell_state.shell_sigtable);
+    init_ch_sigtable(&shell_state.shell_sigtable, &shell_state.exec_ctx.pmask);
 
     if (argc > 2) {
       if (strcmp(argv[1], "-c") == 0 || strcmp(argv[1], "-lc") == 0) {
@@ -175,6 +175,7 @@ int main(int argc, char **argv) {
       HANDLE_WRITE_FAIL_FATAL(shell_state.tty_fd, "\n", 1, cmd_line_buf);
 
     t_err_code last_err;
+    shell_state.exec_ctx.mask_valid = false;
     parse_and_execute(&cmd_line_buf, &shell_state, &shell_state.token_stream,
                       false, &last_err);
     arena_reset(&shell_state.arena);

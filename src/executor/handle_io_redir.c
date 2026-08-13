@@ -368,6 +368,8 @@ static int apply_single_redir(t_shell *shell, t_ast_n *node, int index) {
  *
  */
 int redirect_io(t_shell *shell, t_ast_n *node) {
+  if (!node->io_redir)
+    return -1;
   if (!shell->exec_ctx.fd_prevs) {
     shell->exec_ctx.fd_prevs = (t_fd_backup *)arena_alloc(
         &shell->arena, FDS_P_DEF_SIZE * sizeof(t_fd_backup));
@@ -398,6 +400,8 @@ int redirect_io(t_shell *shell, t_ast_n *node) {
  *
  */
 int restore_io(t_shell *shell, t_ast_n *node) {
+  if (!node->io_redir)
+    return -1;
   size_t k = 0;
   int restore_count;
 

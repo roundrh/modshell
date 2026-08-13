@@ -59,6 +59,9 @@ typedef struct s_exec_ctx {
   int break_loop_depth;
   bool continue_loop;
   bool is_subshell;
+
+  sigset_t pmask;
+  bool mask_valid;
 } t_exec_ctx;
 
 /**

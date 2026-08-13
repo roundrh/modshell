@@ -89,7 +89,6 @@ typedef struct s_ast_n {
 
   int background;
   t_op_type op_type;
-
   t_io_redir **io_redir;
   bool redir_bool;
 

@@ -54,7 +54,10 @@ extern volatile sig_atomic_t sigs[NSIG];
  */
 int init_pa_sigtable(t_shell_sigtable *sigtable);
 
-int init_ch_sigtable(t_shell_sigtable *sigtable);
+int init_ch_sigtable(t_shell_sigtable *sigtable, const sigset_t *pmask);
+
+int mask_sigs(sigset_t *oldmask);
+int restore_sigs(const sigset_t *oldmask);
 
 void sig_handler(int sig);
 
