@@ -53,6 +53,7 @@ suggestion
   - if/elif/else
   - for
   - while
+  - until
 - POSIX Parameter Expansion:
   - Braces: `${#VAR}`, `${VAR#, ##, %, %%}`, `${VAR:-, :+, :=, :?`, `${VAR}`
   - Variable: `$VAR`
@@ -65,7 +66,7 @@ suggestion
 - IFS Splitting, with variable IFS options via export IFS or IFS='' parsing
 - Full Job Control: `fg`, `bg`, `jobs`
 - AST recursive descent parser
-- Supports all defined posix command types
+- Supports all defined POSIX command types, except legacy backticks and brace command grouping outside of loops for now
 - Hashtables for aliases, builtins, environment entries, and PATH caching
 - Heredoc with expansions and leading tab removal, including pipe heredoc, script heredocs, etc.
 - All / Arbitrary redirections (- to close fd not handled yet)

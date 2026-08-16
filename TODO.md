@@ -9,3 +9,4 @@ Implement feature:
 Fix:
   - Stop IFS Splitting on escaped spaces
   - Switch to on-demand hashing rather than aggressively hashing PATH
+  - echo ${VAR:-$(echo 1)} causes braces to be lost, leading to an unbalanced braces syntax error

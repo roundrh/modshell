@@ -717,7 +717,8 @@ char *read_user_inp(t_shell *shell) {
           return NULL;
         } else if (sigs[SIGCHLD]) {
           sigs[SIGCHLD] = 0;
-          printf("\n");
+          if (shell->job_control_flag)
+            printf("\n");
           reap_sigchld_jobs(shell);
           last_rows_drawn = 0;
           break;
