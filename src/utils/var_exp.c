@@ -385,17 +385,22 @@ static long long parse_arith_number(const char **p, t_err_type *err,
   *p = endptr;
   return val;
 }
-static size_t skip_alnum_us(const char **p) {
-
+static size_t skip_alnum_us(const char **p, int d) {
   size_t len = 0;
+  int d_cnt = 0;
   while ((isalnum(**p) || **p == '_') && **p != '\0') {
+    if (**p == '}') {
+      d_cnt++;
+      if (d_cnt == d)
+        break;
+    }
     (*p)++;
     len++;
   }
   return len;
 }
-static t_param_op get_param_op(t_shell *shell, const char *src,
-                               size_t src_len) {
+static t_param_op get_param_op(t_shell *shell, const char *src, size_t src_len,
+                               int d) {
 
   if (src_len == 0)
     return PARAM_OP_ERR;
@@ -404,7 +409,7 @@ static t_param_op get_param_op(t_shell *shell, const char *src,
   if (*op == '#')
     return PARAM_OP_LEN;
 
-  size_t comparator = skip_alnum_us(&op);
+  size_t comparator = skip_alnum_us(&op, d);
   if (comparator == src_len) {
     return PARAM_OP_NONE;
   } else {
@@ -846,11 +851,13 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
   const char *start = *p;
 
   int brace_depth = 1;
+  int max_d = brace_depth;
   const char *end = start;
   while (*end && brace_depth > 0) {
-    if (*end == '{')
+    if (*end == '{') {
       brace_depth++;
-    else if (*end == '}')
+      max_d++;
+    } else if (*end == '}')
       brace_depth--;
 
     if (brace_depth > 0)
@@ -859,7 +866,7 @@ t_err_type expand_braces(t_shell *shell, char **buf, size_t *buf_cap,
   if (brace_depth != 0 || *end != '}')
     return err_syntax;
 
-  t_param_op op = get_param_op(shell, start, end - start);
+  t_param_op op = get_param_op(shell, start, end - start, max_d);
   if (op == PARAM_OP_ERR)
     return err_syntax;
 

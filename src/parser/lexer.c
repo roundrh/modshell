@@ -265,10 +265,10 @@ static inline bool is_tok_fun(char *cmd_buf, size_t i, t_token_stream *ts,
   return (ctype == TOKEN_OPEN_PAR && cmd_buf[i + 1] == ')' && tc > 0 &&
           ts->tokens[tc - 1].type == TOKEN_SIMPLE && cmd_buf[i - 1] != ' ');
 }
-static inline bool is_delim(char c) {
-  return (c == ' ' || c == '\t' || c == ';' || c == '\n' || c == '|' ||
-          c == '&' || c == '\0' || c == ')');
-}
+// static inline bool is_delim(char c) {
+//   return (c == ' ' || c == '\t' || c == ';' || c == '\n' || c == '|' ||
+//           c == '&' || c == '\0' || c == ')');
+// }
 
 /*buffer safe because userinp.c null-terminates buffer. paired with while loop
  * cond cmd_buf[i+1] can be '\0' but never UB*/
@@ -341,17 +341,19 @@ int lex_command_line(char **cmd_line_buf, t_token_stream *token_stream,
       }
       t_token_type type = get_token_type(seq, &op_len);
 
-      if (type == TOKEN_LBRACE) {
-        if (i > 0 && (!is_delim(cmd_buf[i - 1]) || !is_delim(cmd_buf[i + 1]))) {
-          type = TOKEN_SIMPLE;
-          op_len = 1;
-        }
-      } else if (type == TOKEN_RBRACE) {
-        if (i > 0 && (!is_delim(cmd_buf[i - 1]) || !is_delim(cmd_buf[i + 1]))) {
-          type = TOKEN_SIMPLE;
-          op_len = 1;
-        }
-      }
+      // if (type == TOKEN_LBRACE) {
+      //   if (i > 0 && (!is_delim(cmd_buf[i - 1]) || !is_delim(cmd_buf[i +
+      //   1]))) {
+      //     type = TOKEN_SIMPLE;
+      //     op_len = 1;
+      //   }
+      // } else if (type == TOKEN_RBRACE) {
+      //   if (i > 0 && (!is_delim(cmd_buf[i - 1]) || !is_delim(cmd_buf[i +
+      //   1]))) {
+      //     type = TOKEN_SIMPLE;
+      //     op_len = 1;
+      //   }
+      // }
 
       if (cmd_buf[i] == ' ' || cmd_buf[i] == '\t') {
         if (hd) {
