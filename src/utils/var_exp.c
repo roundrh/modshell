@@ -1522,8 +1522,20 @@ t_err_type expand_make_argv(t_shell *shell, char ***argv, t_token *orig_tokens,
       continue;
     }
 
-    if (has_brace_pattern(&orig_tokens[i])) {
-      expand_braces_to_stream(&vs, &orig_tokens[i], a);
+    if (orig_tokens[i].type == TOKEN_LBRACE) {
+      t_token t;
+      t.start = orig_tokens[i].start;
+      int j = i;
+      size_t totlen = orig_tokens[i].len;
+      while (orig_tokens[j].type != TOKEN_RBRACE) {
+        totlen += orig_tokens[j].len;
+        j++;
+      }
+      t.len = totlen;
+      if (has_brace_pattern(&t)) {
+        expand_braces_to_stream(&vs, &t, a);
+        i += j;
+      }
     } else {
       push_token(&vs, orig_tokens[i], a);
     }
